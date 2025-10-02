@@ -7,6 +7,10 @@ services:
       - "8080:8080"
     depends_on:
       - db
+    volumes:
+      - ./src:/app/src    # ← 開発用にホストのsrcをマウント
+      - ./logs:/app/logs  # ← 任意: ログも残したいなら
+
 
   db:
     image: postgres:16
