@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   mmam:
     build: .
@@ -8,9 +10,13 @@ services:
     depends_on:
       - db
     volumes:
-      - ./src:/app/src    # ← 開発用にホストのsrcをマウント
-      - ./logs:/app/logs  # ← 任意: ログも残したいなら
-
+      - ./src:/app/src        # Host-side source mount for dev
+      - ./logs:/app/logs      # Optional: Persistent logs
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8080
+      --reload
 
   db:
     image: postgres:16

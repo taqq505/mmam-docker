@@ -218,3 +218,4 @@ db_data/
 
 # Secrets
 .env
+*.env
