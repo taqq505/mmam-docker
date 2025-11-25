@@ -13,6 +13,12 @@ DB_NAME = os.getenv("POSTGRES_DB", "mmam")
 # Create initial admin user (can be disabled via ENV)
 INIT_ADMIN = os.getenv("INIT_ADMIN", "true").lower() == "true"
 
+# Application setting defaults (key/value)
+SETTINGS_DEFAULTS = {
+    "allow_anonymous_flows": "false",
+    "allow_anonymous_user_lookup": "false"
+}
+
 
 def init_db(max_retries: int = 10, wait_sec: int = 3):
     """
@@ -45,13 +51,13 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
+        role TEXT NOT NULL DEFAULT 'viewer',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     conn.commit()
 
-        # --------------------------------------------------------
+    # --------------------------------------------------------
     # Flows table (based on MCAM specification)
     # --------------------------------------------------------
     cur.execute("""
@@ -132,6 +138,26 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    conn.commit()
+
+    # --------------------------------------------------------
+    # Settings table
+    # --------------------------------------------------------
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    conn.commit()
+
+    for key, value in SETTINGS_DEFAULTS.items():
+        cur.execute("""
+            INSERT INTO settings (key, value)
+            VALUES (%s, %s)
+            ON CONFLICT (key) DO NOTHING;
+        """, (key, value))
     conn.commit()
 
 
