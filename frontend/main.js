@@ -2,34 +2,34 @@ const { createApp } = Vue;
 
 const FIELD_GROUPS = [
   {
-    title: "基本情報",
+    title: "Basic Info",
     fields: [
-      { key: "display_name", label: "表示名" },
-      { key: "flow_id", label: "Flow ID (任意)" },
-      { key: "data_source", label: "データソース", type: "select", options: ["manual", "nmos", "rds"] },
-      { key: "note", label: "メモ", type: "textarea" }
+      { key: "display_name", label: "Display Name" },
+      { key: "flow_id", label: "Flow ID (optional)" },
+      { key: "data_source", label: "Data Source", type: "select", options: ["manual", "nmos", "rds"] },
+      { key: "note", label: "Notes", type: "textarea" }
     ]
   },
   {
-    title: "ST2022-7 パスA",
+    title: "ST2022-7 Path A",
     fields: [
-      { key: "source_addr_a", label: "ソースアドレスA" },
-      { key: "source_port_a", label: "ソースポートA", type: "number" },
-      { key: "multicast_addr_a", label: "マルチキャストアドレスA" },
-      { key: "group_port_a", label: "グループポートA", type: "number" }
+      { key: "source_addr_a", label: "Source Address A" },
+      { key: "source_port_a", label: "Source Port A", type: "number" },
+      { key: "multicast_addr_a", label: "Multicast Address A" },
+      { key: "group_port_a", label: "Group Port A", type: "number" }
     ]
   },
   {
-    title: "ST2022-7 パスB",
+    title: "ST2022-7 Path B",
     fields: [
-      { key: "source_addr_b", label: "ソースアドレスB" },
-      { key: "source_port_b", label: "ソースポートB", type: "number" },
-      { key: "multicast_addr_b", label: "マルチキャストアドレスB" },
-      { key: "group_port_b", label: "グループポートB", type: "number" }
+      { key: "source_addr_b", label: "Source Address B" },
+      { key: "source_port_b", label: "Source Port B", type: "number" },
+      { key: "multicast_addr_b", label: "Multicast Address B" },
+      { key: "group_port_b", label: "Group Port B", type: "number" }
     ]
   },
   {
-    title: "NMOS メタデータ",
+    title: "NMOS Metadata",
     fields: [
       { key: "transport_protocol", label: "Transport Protocol" },
       { key: "nmos_flow_id", label: "NMOS Flow ID" },
@@ -42,7 +42,7 @@ const FIELD_GROUPS = [
     ]
   },
   {
-    title: "SDP / ラベル",
+    title: "SDP / Labels",
     fields: [
       { key: "sdp_url", label: "SDP URL" },
       { key: "sdp_cache", label: "SDP Cache", type: "textarea" },
@@ -52,7 +52,7 @@ const FIELD_GROUPS = [
     ]
   },
   {
-    title: "メディア情報",
+    title: "Media Info",
     fields: [
       { key: "media_type", label: "Media Type" },
       { key: "st2110_format", label: "ST2110 Format" },
@@ -60,14 +60,14 @@ const FIELD_GROUPS = [
     ]
   },
   {
-    title: "エイリアス",
+    title: "Aliases",
     fields: Array.from({ length: 8 }).map((_, idx) => ({
       key: `alias${idx + 1}`,
       label: `Alias ${idx + 1}`
     }))
   },
   {
-    title: "ステータス / 利用状況",
+    title: "Status / Availability",
     fields: [
       { key: "flow_status", label: "Flow Status" },
       { key: "availability", label: "Availability" },
@@ -75,14 +75,14 @@ const FIELD_GROUPS = [
     ]
   },
   {
-    title: "外部参照",
+    title: "External References",
     fields: [
       { key: "rds_address", label: "RDS Address" },
       { key: "rds_api_url", label: "RDS API URL" }
     ]
   },
   {
-    title: "ユーザー定義フィールド",
+    title: "User-defined Fields",
     fields: Array.from({ length: 8 }).map((_, idx) => ({
       key: `user_field${idx + 1}`,
       label: `User Field ${idx + 1}`
@@ -98,6 +98,15 @@ const NUMBER_FIELDS = new Set([
   "nmos_is04_port",
   "nmos_is05_port"
 ]);
+
+const SORT_FIELDS = [
+  { value: "updated_at", label: "Updated" },
+  { value: "created_at", label: "Created" },
+  { value: "display_name", label: "Display Name" },
+  { value: "flow_status", label: "Status" },
+  { value: "multicast_addr_a", label: "Multicast A" },
+  { value: "source_addr_a", label: "Source A" }
+];
 
 const DEFAULT_FLOW = () => ({
   flow_id: "",
@@ -192,6 +201,7 @@ createApp({
       token: null,
       currentUser: null,
       currentView: "dashboard",
+      views: ["dashboard", "flows", "search", "newFlow", "users", "settings"],
       loginForm: {
         username: "admin",
         password: "admin"
@@ -205,8 +215,11 @@ createApp({
       },
       filters: {
         limit: 20,
-        offset: 0
+        offset: 0,
+        sort_by: "updated_at",
+        sort_order: "desc"
       },
+      sortFields: SORT_FIELDS,
       quickSearch: DEFAULT_QUICK_SEARCH(),
       advancedSearch: DEFAULT_ADVANCED_SEARCH(),
       advancedCollapsed: false,
@@ -235,12 +248,49 @@ createApp({
   },
   mounted() {
     this.loadBaseUrl();
+    this.initializeViewFromHash();
+    window.addEventListener("popstate", this.handlePopState);
     if (this.token) {
       this.fetchMe();
     }
     this.refreshFlows();
   },
+  beforeUnmount() {
+    window.removeEventListener("popstate", this.handlePopState);
+  },
   methods: {
+    initializeViewFromHash() {
+      const hashView = window.location.hash.replace("#", "");
+      const initialView = this.views.includes(hashView) ? hashView : this.currentView;
+      this.setView(initialView, { replaceHistory: true, force: true });
+    },
+    handlePopState(event) {
+      const stateView = event.state && event.state.view;
+      const hashView = window.location.hash.replace("#", "");
+      const target = this.views.includes(stateView) ? stateView : hashView;
+      this.setView(target, { skipHistory: true, force: true });
+    },
+    setView(view, options = {}) {
+      const { replaceHistory = false, skipHistory = false, force = false } = options;
+      const validView = this.views.includes(view) ? view : "dashboard";
+      const changed = this.currentView !== validView || force;
+      if (changed) {
+        this.currentView = validView;
+      }
+      if (changed && validView === "newFlow" && !this.editingFlowId) {
+        this.resetFlowForm();
+      }
+      if (!skipHistory) {
+        const method = replaceHistory ? "replaceState" : (changed ? "pushState" : null);
+        if (method && typeof history !== "undefined") {
+          history[method]({ view: validView }, "", `#${validView}`);
+        }
+      }
+      return validView;
+    },
+    navigate(view) {
+      this.setView(view);
+    },
     log(message) {
       const stamp = new Date().toISOString();
       this.logs.unshift(`[${stamp}] ${message}`);
@@ -300,8 +350,8 @@ createApp({
         const params = new URLSearchParams({
           limit: this.filters.limit,
           offset: this.filters.offset,
-          sort_by: "updated_at",
-          sort_order: "desc",
+          sort_by: this.filters.sort_by,
+          sort_order: this.filters.sort_order,
           fields: [
             "source_addr_a",
             "source_port_a",
@@ -473,7 +523,7 @@ createApp({
         this.newFlow = { ...DEFAULT_FLOW(), ...data };
         this.editingFlowId = flowId;
         this.editingOriginalFlow = JSON.parse(JSON.stringify(this.newFlow));
-        this.currentView = "newFlow";
+        this.setView("newFlow");
         this.log(`Loaded flow ${flowId} into form`);
       } catch (err) {
         this.log(err.message);
@@ -555,7 +605,7 @@ createApp({
         const resp = await fetch(`${this.baseUrl}/api/users`, {
           headers: this.authHeaders()
         });
-        if (!resp.ok) throw new Error("ユーザー一覧の取得に失敗しました");
+        if (!resp.ok) throw new Error("Failed to fetch user list");
         this.users = await resp.json();
       } catch (err) {
         this.log(err.message);
@@ -568,8 +618,8 @@ createApp({
           headers: this.authHeaders(),
           body: JSON.stringify(this.newUser)
         });
-        if (!resp.ok) throw new Error("ユーザー作成に失敗しました");
-        this.log(`ユーザー作成: ${this.newUser.username}`);
+        if (!resp.ok) throw new Error("Failed to create user");
+        this.log(`User created: ${this.newUser.username}`);
         this.newUser = { username: "", password: "", role: "viewer" };
         await this.fetchUsers();
       } catch (err) {
@@ -586,23 +636,38 @@ createApp({
           headers: this.authHeaders(),
           body: JSON.stringify(payload)
         });
-        if (!resp.ok) throw new Error("ユーザー更新に失敗しました");
-        this.log(`ユーザー更新: ${user.username}`);
+        if (!resp.ok) throw new Error("Failed to update user");
+        this.log(`User updated: ${user.username}`);
         await this.fetchUsers();
       } catch (err) {
         this.log(err.message);
       }
     },
     async deleteUser(username) {
-      if (!confirm(`${username} を削除しますか？`)) return;
+      if (!confirm(`Delete user ${username}?`)) return;
       try {
         const resp = await fetch(`${this.baseUrl}/api/users/${username}`, {
           method: "DELETE",
           headers: this.authHeaders()
         });
-        if (!resp.ok) throw new Error("ユーザー削除に失敗しました");
-        this.log(`ユーザー削除: ${username}`);
+        if (!resp.ok) throw new Error("Failed to delete user");
+        this.log(`User deleted: ${username}`);
         await this.fetchUsers();
+      } catch (err) {
+        this.log(err.message);
+      }
+    },
+    async deleteFlow(flowId) {
+      if (!confirm(`Delete flow ${flowId}?`)) return;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/${flowId}`, {
+          method: "DELETE",
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) throw new Error("Failed to delete flow");
+        this.log(`Flow deleted: ${flowId}`);
+        await this.refreshFlows();
+        this.searchResults = this.searchResults.filter(flow => flow.flow_id !== flowId);
       } catch (err) {
         this.log(err.message);
       }
@@ -612,7 +677,7 @@ createApp({
         const resp = await fetch(`${this.baseUrl}/api/settings`, {
           headers: this.authHeaders()
         });
-        if (!resp.ok) throw new Error("設定情報の取得に失敗しました");
+        if (!resp.ok) throw new Error("Failed to fetch settings");
         this.settings = await resp.json();
       } catch (err) {
         this.log(err.message);
@@ -625,10 +690,10 @@ createApp({
           headers: this.authHeaders(),
           body: JSON.stringify({ value })
         });
-        if (!resp.ok) throw new Error("設定更新に失敗しました");
+        if (!resp.ok) throw new Error("Failed to update setting");
         const data = await resp.json();
         this.settings[key] = data.value;
-        this.log(`設定更新: ${key} = ${data.value}`);
+        this.log(`Setting updated: ${key} = ${data.value}`);
       } catch (err) {
         this.log(err.message);
       }

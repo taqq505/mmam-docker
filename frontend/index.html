@@ -27,28 +27,28 @@
                 <p class="text-xs text-slate-300">media multicast address manager</p>
             </div>
             <nav class="flex-1 px-4 py-6 space-y-2 text-sm">
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='dashboard' && 'bg-white/20'" @click="currentView='dashboard'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='dashboard' && 'bg-white/20'" @click="navigate('dashboard')">
                     Dashboard / ダッシュボード
                 </button>
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='flows' && 'bg-white/20'" @click="currentView='flows'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='flows' && 'bg-white/20'" @click="navigate('flows')">
                     Flows / フロー一覧
                 </button>
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='search' && 'bg-white/20'" @click="currentView='search'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='search' && 'bg-white/20'" @click="navigate('search')">
                     Search / 検索
                 </button>
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='newFlow' && 'bg-white/20'" @click="currentView='newFlow'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='newFlow' && 'bg-white/20'" @click="navigate('newFlow')">
                     New Flow / 新規フロー
                 </button>
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='users' && 'bg-white/20'" @click="currentView='users'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='users' && 'bg-white/20'" @click="navigate('users')">
                     Users / ユーザー管理
                 </button>
-                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='settings' && 'bg-white/20'" @click="currentView='settings'">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='settings' && 'bg-white/20'" @click="navigate('settings')">
                     Settings / 設定
                 </button>
             </nav>
             <div class="px-4 py-4 border-t border-white/10 text-xs">
                 <p>{{ currentUser ? currentUser.username : "Guest" }} ({{ currentUser ? currentUser.role : "viewer" }})</p>
-                <button class="mt-2 px-3 py-1 bg-white/20 rounded text-sm w-full" @click="logout" v-if="token">ログアウト</button>
+                <button class="mt-2 px-3 py-1 bg-white/20 rounded text-sm w-full" @click="logout" v-if="token">Log out</button>
             </div>
         </aside>
         <div class="flex-1 flex flex-col">
@@ -60,7 +60,7 @@
                 <div class="ml-auto flex items-center gap-4">
                     <div v-if="token" class="text-right">
                         <p class="text-sm font-semibold">
-                            {{ currentUser ? currentUser.username : "ログイン済み" }}
+                            {{ currentUser ? currentUser.username : "Logged in" }}
                         </p>
                         <p class="text-xs text-slate-500">
                             {{ currentUser ? currentUser.role : "" }}
@@ -71,7 +71,7 @@
                         class="px-3 py-2 text-sm rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
                         @click="logout"
                     >
-                        ログアウト
+                        Log out
                     </button>
                     <form v-else class="flex items-center gap-2 text-sm" @submit.prevent="login">
                         <input
@@ -90,7 +90,7 @@
                             type="submit"
                             class="bg-emerald-600 text-white rounded px-3 py-2"
                         >
-                            ログイン
+                            Log in
                         </button>
                     </form>
                 </div>
@@ -99,7 +99,7 @@
             <template v-if="currentView==='dashboard'">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <section class="bg-white p-4 rounded shadow-lg space-y-3">
-                    <h2 class="font-semibold text-lg">サマリー</h2>
+                    <h2 class="font-semibold text-lg">Summary</h2>
                     <div class="grid grid-cols-2 gap-3 text-center">
                         <div class="bg-slate-100 rounded p-3">
                             <div class="text-2xl font-bold">{{ summary.total }}</div>
@@ -117,11 +117,20 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <section class="bg-white rounded shadow-lg p-4">
                     <div class="flex items-center justify-between mb-4">
-                        <h2 class="font-semibold text-lg">フロー一覧</h2>
+                        <h2 class="font-semibold text-lg">Flows / フロー一覧</h2>
                         <div class="flex gap-2">
                             <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.limit" />
                             <input type="number" min="0" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.offset" />
-                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="refreshFlows">更新</button>
+                            <select class="border rounded px-2 py-1 text-sm" v-model="filters.sort_by">
+                                <option v-for="option in sortFields" :key="option.value" :value="option.value">
+                                    {{ option.label }}
+                                </option>
+                            </select>
+                            <select class="border rounded px-2 py-1 text-sm" v-model="filters.sort_order">
+                                <option value="desc">Descending</option>
+                                <option value="asc">Ascending</option>
+                            </select>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="refreshFlows">Refresh</button>
                         </div>
                     </div>
                     <div class="space-y-2 max-h-[420px] overflow-auto">
@@ -129,21 +138,21 @@
                             <div>
                                 <h3 class="font-semibold">{{ flow.display_name || flow.flow_id }}</h3>
                                 <p class="text-xs text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
-                                <p class="text-xs text-slate-400">更新: {{ flow.updated_at }}</p>
+                                <p class="text-xs text-slate-400">Updated: {{ flow.updated_at }}</p>
                             </div>
                             <div class="flex flex-col gap-1">
-                                <button class="text-xs text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
-                                <button class="text-xs text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                                <button class="text-xs text-slate-600 underline" @click="showFlow(flow.flow_id)">Details</button>
+                                <button class="text-xs text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">Edit</button>
                             </div>
                         </article>
-                        <p v-if="flows.length === 0" class="text-sm text-slate-500">フローが見つかりません。</p>
+                        <p v-if="flows.length === 0" class="text-sm text-slate-500">No flows found.</p>
                     </div>
                 </section>
             </div>
             </div>
 
             <section class="bg-white rounded shadow-lg p-4">
-                <h2 class="font-semibold text-lg mb-2">デバッグコンソール</h2>
+                <h2 class="font-semibold text-lg mb-2">Debug Console</h2>
                 <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 max-h-60 overflow-auto">{{ logs.join("\n") }}</pre>
             </section>
             </template>
@@ -151,26 +160,41 @@
             <template v-else-if="currentView==='flows'">
                 <section class="bg-white rounded shadow-lg p-4 space-y-3">
                     <div class="flex items-center justify-between">
-                        <h2 class="font-semibold text-lg">フロー一覧</h2>
+                        <h2 class="font-semibold text-lg">Flows / フロー一覧</h2>
                         <div class="flex items-center gap-2 text-sm">
                             <label>limit <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1" v-model.number="filters.limit" /></label>
                             <label>offset <input type="number" min="0" class="w-20 border rounded px-2 py-1" v-model.number="filters.offset" /></label>
-                            <button class="px-3 py-1 bg-slate-900 text-white rounded" @click="refreshFlows">更新</button>
+                            <label class="flex items-center gap-1">
+                                sort
+                                <select class="border rounded px-2 py-1" v-model="filters.sort_by">
+                                    <option v-for="option in sortFields" :key="option.value" :value="option.value">
+                                        {{ option.label }}
+                                    </option>
+                                </select>
+                            </label>
+                            <label class="flex items-center gap-1">
+                                order
+                                <select class="border rounded px-2 py-1" v-model="filters.sort_order">
+                                    <option value="desc">Descending</option>
+                                    <option value="asc">Ascending</option>
+                                </select>
+                            </label>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded" @click="refreshFlows">Refresh</button>
                         </div>
                     </div>
                     <div class="overflow-auto">
                         <table class="w-full text-sm border border-slate-200">
                             <thead class="bg-slate-100 text-slate-600">
                                 <tr>
-                                    <th class="px-3 py-2 text-left">表示名</th>
+                                    <th class="px-3 py-2 text-left">Display Name</th>
                                     <th class="px-3 py-2 text-left">flow_id</th>
                                     <th class="px-3 py-2 text-left">status</th>
                                     <th class="px-3 py-2 text-left">Source A</th>
                                     <th class="px-3 py-2 text-left">Multicast A</th>
                                     <th class="px-3 py-2 text-left">Source B</th>
                                     <th class="px-3 py-2 text-left">Multicast B</th>
-                                    <th class="px-3 py-2 text-left">更新日時</th>
-                                    <th class="px-3 py-2">操作</th>
+                                    <th class="px-3 py-2 text-left">Updated At</th>
+                                    <th class="px-3 py-2">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -185,13 +209,13 @@
                                     <td class="px-3 py-2 text-xs">{{ flow.updated_at }}</td>
                                     <td class="px-3 py-2 text-xs">
                                         <div class="flex flex-col gap-1">
-                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
-                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">Details</button>
+                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">Edit</button>
                                         </div>
                                     </td>
                                 </tr>
                                 <tr v-if="flows.length === 0">
-                                    <td colspan="9" class="text-center py-4 text-slate-500">フローが見つかりません。</td>
+                                    <td colspan="9" class="text-center py-4 text-slate-500">No flows found.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -204,7 +228,7 @@
                     <section class="bg-white rounded shadow-lg p-4 space-y-4">
                         <div>
                             <h2 class="font-semibold text-lg">Quick Search / 簡易検索</h2>
-                            <p class="text-xs text-slate-500">全テキスト項目から入力したキーワードを部分一致で検索します。</p>
+                            <p class="text-xs text-slate-500">Search all text fields with partial match keywords.</p>
                         </div>
                         <div class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4 text-sm">
                             <label class="flex-1 flex flex-col gap-1 text-slate-600">
@@ -225,7 +249,7 @@
                         <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                             <div>
                                 <h2 class="font-semibold text-lg">Advanced Search / 詳細検索</h2>
-                                <p class="text-xs text-slate-500">項目ごとに入力し、数値や日時は範囲指定が可能です。</p>
+                                <p class="text-xs text-slate-500">Enter conditions per field; numeric and datetime values support ranges.</p>
                             </div>
                             <button
                                 class="text-xs text-slate-600 border rounded px-3 py-1 self-start"
@@ -304,19 +328,20 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <p class="font-semibold mb-2 text-slate-600">Date Range / 日時</p>
+                                    <p class="font-semibold mb-1 text-slate-600">Date Range</p>
+                                    <p class="text-[11px] text-slate-500 mb-2">Format: YYYY-MM-DDTHH:MM (24h)</p>
                                     <div class="grid grid-cols-2 gap-2">
                                         <label>Updated From
-                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_min" />
+                                            <input type="datetime-local" lang="en-CA" step="1" placeholder="YYYY-MM-DDTHH:MM" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_min" />
                                         </label>
                                         <label>Updated To
-                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_max" />
+                                            <input type="datetime-local" lang="en-CA" step="1" placeholder="YYYY-MM-DDTHH:MM" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_max" />
                                         </label>
                                         <label>Created From
-                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_min" />
+                                            <input type="datetime-local" lang="en-CA" step="1" placeholder="YYYY-MM-DDTHH:MM" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_min" />
                                         </label>
                                         <label>Created To
-                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_max" />
+                                            <input type="datetime-local" lang="en-CA" step="1" placeholder="YYYY-MM-DDTHH:MM" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_max" />
                                         </label>
                                     </div>
                                     <div class="mt-3 flex items-center gap-3">
@@ -332,7 +357,7 @@
                                 </div>
                             </div>
                             <div class="flex gap-3">
-                                <button class="bg-slate-900 text-white rounded px-4 py-2 text-sm" @click="runAdvancedSearch">Advanced Search 実行</button>
+                                <button class="bg-slate-900 text-white rounded px-4 py-2 text-sm" @click="runAdvancedSearch">Advanced Search</button>
                                 <button class="px-4 py-2 border rounded text-sm" @click="resetAdvancedSearch">Reset</button>
                             </div>
                         </div>
@@ -370,8 +395,8 @@
                                     <td class="px-3 py-2 text-xs">{{ flow.updated_at }}</td>
                                     <td class="px-3 py-2 text-xs">
                                         <div class="flex flex-col gap-1">
-                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
-                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">Details</button>
+                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">Edit</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -389,14 +414,21 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="font-semibold text-lg">
-                                {{ editingFlowId ? 'フロー更新 / Edit Flow' : 'フロー登録 (Manual)' }}
+                                {{ editingFlowId ? 'Flow Update / Edit Flow' : 'Create Flow (Manual)' }}
                             </h2>
-                            <p v-if="editingFlowId" class="text-xs text-slate-500">編集中: {{ editingFlowId }}</p>
+                            <p v-if="editingFlowId" class="text-xs text-slate-500">Editing: {{ editingFlowId }}</p>
                         </div>
                         <div class="flex gap-3">
-                            <button class="px-3 py-2 border rounded text-sm" @click="resetFlowForm">リセット</button>
+                            <button class="px-3 py-2 border rounded text-sm" @click="resetFlowForm">Reset</button>
                             <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="submitFlow">
-                                {{ editingFlowId ? '更新' : '登録' }}
+                                {{ editingFlowId ? 'Update' : 'Create' }}
+                            </button>
+                            <button
+                                v-if="editingFlowId"
+                                class="px-4 py-2 bg-red-500 text-white rounded text-sm"
+                                @click="deleteFlow(editingFlowId)"
+                            >
+                                Delete Flow
                             </button>
                         </div>
                     </div>
@@ -423,7 +455,7 @@
                                             placeholder="Auto assigned / NMOS Flow ID"
                                         />
                                         <span class="text-[10px] text-slate-500 block">
-                                            Manual登録時は自動採番。NMOS/RDS連携時のみ編集できます。
+                                            Auto-generated for manual entries; editable only via NMOS/RDS imports.
                                         </span>
                                     </template>
                                     <template v-else>
@@ -437,24 +469,24 @@
                             </div>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500">将来的に NMOS / RDS ウィザードから自動入力できるように設計しています。</p>
+                    <p class="text-xs text-slate-500">Designed for future NMOS / RDS auto-fill wizards.</p>
                 </section>
             </template>
 
             <template v-else-if="currentView==='users'">
                 <section class="bg-white rounded shadow-lg p-4 space-y-4">
                     <div class="flex items-center justify-between">
-                        <h2 class="font-semibold text-lg">ユーザー管理</h2>
-                        <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchUsers">再読み込み</button>
+                        <h2 class="font-semibold text-lg">Users / ユーザー管理</h2>
+                        <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchUsers">Reload</button>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <label class="text-xs text-slate-500">ユーザー名
+                        <label class="text-xs text-slate-500">Username
                             <input class="w-full border rounded px-3 py-2" v-model="newUser.username" />
                         </label>
-                        <label class="text-xs text-slate-500">パスワード
+                        <label class="text-xs text-slate-500">Password
                             <input type="password" class="w-full border rounded px-3 py-2" v-model="newUser.password" />
                         </label>
-                        <label class="text-xs text-slate-500">ロール
+                        <label class="text-xs text-slate-500">Role
                             <select class="w-full border rounded px-3 py-2" v-model="newUser.role">
                                 <option value="viewer">viewer</option>
                                 <option value="editor">editor</option>
@@ -462,15 +494,15 @@
                             </select>
                         </label>
                     </div>
-                    <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="createUser">ユーザー追加</button>
+                    <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="createUser">Add User</button>
                     <div class="overflow-auto">
                         <table class="w-full text-sm border border-slate-200">
                             <thead class="bg-slate-100 text-slate-600">
                                 <tr>
-                                    <th class="px-3 py-2 text-left">ユーザー名</th>
-                                    <th class="px-3 py-2 text-left">ロール</th>
-                                    <th class="px-3 py-2 text-left">作成日</th>
-                                    <th class="px-3 py-2 text-center">操作</th>
+                                    <th class="px-3 py-2 text-left">Username</th>
+                                    <th class="px-3 py-2 text-left">Role</th>
+                                    <th class="px-3 py-2 text-left">Created At</th>
+                                    <th class="px-3 py-2 text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -485,12 +517,12 @@
                                     </td>
                                     <td class="px-3 py-2 text-xs">{{ user.created_at }}</td>
                                     <td class="px-3 py-2 text-xs text-center">
-                                        <button class="text-emerald-600 underline mr-3" @click="updateUserInfo(user)">保存</button>
-                                        <button class="text-red-500 underline" @click="deleteUser(user.username)">削除</button>
+                                        <button class="text-emerald-600 underline mr-3" @click="updateUserInfo(user)">Save</button>
+                                        <button class="text-red-500 underline" @click="deleteUser(user.username)">Delete</button>
                                     </td>
                                 </tr>
                                 <tr v-if="users.length === 0">
-                                    <td colspan="4" class="text-center py-4 text-slate-500">ユーザーがいません。</td>
+                                    <td colspan="4" class="text-center py-4 text-slate-500">No users found.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -502,44 +534,44 @@
                 <div class="space-y-4">
                     <section class="bg-white rounded shadow-lg p-4 space-y-4">
                         <div class="flex items-center justify-between">
-                            <h2 class="font-semibold text-lg">接続設定</h2>
-                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="loadBaseUrl">再読み込み</button>
+                            <h2 class="font-semibold text-lg">Connection Settings</h2>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="loadBaseUrl">Reload</button>
                         </div>
-                        <label class="text-sm text-slate-500">API ベースURL
+                        <label class="text-sm text-slate-500">API Base URL
                             <input type="text" v-model="baseUrl" class="w-full border rounded px-3 py-2 mt-1" placeholder="http://10.59.100.111:8080" />
                         </label>
                         <div class="flex gap-2">
-                            <button class="px-3 py-2 bg-slate-900 text-white rounded text-sm" @click="saveBaseUrl">保存</button>
-                            <button class="px-3 py-2 border rounded text-sm" @click="loadBaseUrl">リセット</button>
+                            <button class="px-3 py-2 bg-slate-900 text-white rounded text-sm" @click="saveBaseUrl">Save</button>
+                            <button class="px-3 py-2 border rounded text-sm" @click="loadBaseUrl">Reset</button>
                         </div>
-                        <p class="text-xs text-slate-500">ブラウザのローカルストレージに保存されます。</p>
+                        <p class="text-xs text-slate-500">Stored in browser local storage.</p>
                         <div class="border-t pt-4 space-y-2">
-                            <h3 class="font-semibold text-base">ログイン</h3>
-                            <p class="text-xs text-slate-500">現在: {{ currentUser ? currentUser.username : "未ログイン" }}</p>
+                            <h3 class="font-semibold text-base">Login</h3>
+                            <p class="text-xs text-slate-500">Current: {{ currentUser ? currentUser.username : "Not signed in" }}</p>
                             <div v-if="!token" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <input type="text" v-model="loginForm.username" placeholder="username" class="border rounded px-3 py-2" />
                                 <input type="password" v-model="loginForm.password" placeholder="password" class="border rounded px-3 py-2" />
-                                <button class="bg-emerald-600 text-white rounded px-3 py-2" @click="login">ログイン</button>
+                                <button class="bg-emerald-600 text-white rounded px-3 py-2" @click="login">Log in</button>
                             </div>
-                            <div v-else class="text-xs text-slate-500">ログイン済みです。再ログインする場合はログアウト後に再入力してください。</div>
+                            <div v-else class="text-xs text-slate-500">Already logged in. Log out to re-authenticate.</div>
                         </div>
                     </section>
 
                     <section class="bg-white rounded shadow-lg p-4 space-y-4">
                         <div class="flex items-center justify-between">
-                            <h2 class="font-semibold text-lg">アプリ設定</h2>
-                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchSettings">再読み込み</button>
+                            <h2 class="font-semibold text-lg">Application Settings</h2>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchSettings">Reload</button>
                         </div>
                         <div class="space-y-2">
                             <div v-for="(value, key) in settings" :key="key" class="border rounded p-3 flex items-center justify-between">
                                 <div>
                                     <p class="text-sm font-semibold">{{ key }}</p>
-                                    <p class="text-xs text-slate-500">現在値: {{ value }}</p>
+                                    <p class="text-xs text-slate-500">Current value: {{ value }}</p>
                                 </div>
                                 <button class="px-3 py-1 border rounded text-sm" @click="updateSetting(key, value === true ? false : true)" v-if="typeof value === 'boolean'">
-                                    {{ value ? '無効化' : '有効化' }}
+                                    {{ value ? 'Disable' : 'Enable' }}
                                 </button>
-                                <button class="px-3 py-1 border rounded text-sm" v-else disabled>編集不可</button>
+                                <button class="px-3 py-1 border rounded text-sm" v-else disabled>Read only</button>
                             </div>
                         </div>
                     </section>
@@ -548,7 +580,7 @@
 
             <template v-else>
                 <section class="bg-white rounded shadow-lg p-6 text-sm text-slate-500">
-                    このセクションはまだ実装されていません。
+                    This section is not implemented yet.
                 </section>
             </template>
 
@@ -562,14 +594,14 @@
                                 <span class="font-mono" v-text="detailFlow ? detailFlow.flow_id : ''"></span>
                             </p>
                         </div>
-                        <button class="text-sm text-slate-500" @click="closeDetail">閉じる</button>
+                        <button class="text-sm text-slate-500" @click="closeDetail">Close</button>
                     </div>
                     <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div v-for="entry in detailEntries" :key="entry[0]" class="border rounded p-3 flex flex-col gap-1">
                             <p class="text-xs text-slate-500 uppercase tracking-wide" v-text="entry[0]"></p>
                             <p class="font-mono text-xs break-words whitespace-pre-wrap" v-text="entry[1]"></p>
                         </div>
-                        <p v-if="detailEntries.length === 0" class="text-center text-xs text-slate-500">データがありません。</p>
+                        <p v-if="detailEntries.length === 0" class="text-center text-xs text-slate-500">No data.</p>
                     </div>
                 </div>
             </div>
