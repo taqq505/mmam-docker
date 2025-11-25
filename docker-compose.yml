@@ -18,6 +18,15 @@ services:
       --port 8080
       --reload
 
+  ui:
+    image: nginx:alpine
+    ports:
+      - "4173:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - mmam
+
   db:
     image: postgres:16
     env_file:

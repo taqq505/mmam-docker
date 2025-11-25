@@ -39,6 +39,19 @@ INT_FILTER_FIELDS = {
 
 FILTER_FIELDS = TEXT_FILTER_FIELDS | INT_FILTER_FIELDS
 
+KEYWORD_SEARCH_FIELDS = [
+    "flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
+    "display_name",
+    "source_addr_a", "source_addr_b",
+    "multicast_addr_a", "multicast_addr_b",
+    "transport_protocol",
+    "nmos_label", "nmos_description",
+    "alias1", "alias2", "alias3", "alias4",
+    "alias5", "alias6", "alias7", "alias8",
+    "management_url", "note",
+    "media_type", "redundancy_group"
+]
+
 
 def _parse_datetime(value: str, label: str) -> datetime:
     try:
@@ -174,7 +187,8 @@ def list_flows(
     updated_at_min: str | None = Query(None, description="Return flows updated at or after this ISO timestamp"),
     updated_at_max: str | None = Query(None, description="Return flows updated at or before this ISO timestamp"),
     created_at_min: str | None = Query(None, description="Return flows created at or after this ISO timestamp"),
-    created_at_max: str | None = Query(None, description="Return flows created at or before this ISO timestamp")
+    created_at_max: str | None = Query(None, description="Return flows created at or before this ISO timestamp"),
+    q: str | None = Query(None, description="Keyword search across text fields / 全テキストフィールド横断検索")
 ):
     """
     List flow entries (default + optional fields via ?fields=)
@@ -207,7 +221,12 @@ def list_flows(
         conditions.append("flow_status = 'active'")
 
     # ✅ 動的検索条件
-    skip_keys = {"include_unused", "fields", "updated_at_min", "updated_at_max", "created_at_min", "created_at_max"}
+    skip_keys = {
+        "include_unused", "fields",
+        "updated_at_min", "updated_at_max",
+        "created_at_min", "created_at_max",
+        "q"
+    }
     filters = {}
     for key, value in request.query_params.multi_items():
         if key in skip_keys:
@@ -254,6 +273,36 @@ def list_flows(
         dt = _parse_datetime(created_at_max, "created_at_max")
         conditions.append("created_at <= %s")
         values.append(dt)
+
+    # Numeric range filters
+    for field in INT_FILTER_FIELDS:
+        min_key = f"{field}_min"
+        max_key = f"{field}_max"
+        min_val = request.query_params.get(min_key)
+        max_val = request.query_params.get(max_key)
+        if min_val not in (None, ""):
+            try:
+                values.append(int(min_val))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid integer for {min_key}")
+            conditions.append(f"{field} >= %s")
+        if max_val not in (None, ""):
+            try:
+                values.append(int(max_val))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid integer for {max_key}")
+            conditions.append(f"{field} <= %s")
+
+    if q:
+        keyword = f"%{q}%"
+        clauses = []
+        for field in KEYWORD_SEARCH_FIELDS:
+            if field in {"flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id"}:
+                clauses.append(f"CAST({field} AS TEXT) ILIKE %s")
+            else:
+                clauses.append(f"{field} ILIKE %s")
+        conditions.append("(" + " OR ".join(clauses) + ")")
+        values.extend([keyword] * len(clauses))
 
     if conditions:
         where_clause = " WHERE " + " AND ".join(conditions)

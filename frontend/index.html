@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MMAM Control Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
+</head>
+<body class="bg-slate-100 text-slate-900 font-sans">
+    <div id="app" class="min-h-screen flex bg-slate-100">
+        <aside class="w-64 bg-slate-900 text-white flex flex-col">
+            <div class="px-6 py-5 border-b border-white/10">
+                <h1 class="text-xl font-semibold">MMAM</h1>
+                <p class="text-xs text-slate-300">media multicast address manager</p>
+            </div>
+            <nav class="flex-1 px-4 py-6 space-y-2 text-sm">
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='dashboard' && 'bg-white/20'" @click="currentView='dashboard'">
+                    Dashboard / ダッシュボード
+                </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='flows' && 'bg-white/20'" @click="currentView='flows'">
+                    Flows / フロー一覧
+                </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='search' && 'bg-white/20'" @click="currentView='search'">
+                    Search / 検索
+                </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='newFlow' && 'bg-white/20'" @click="currentView='newFlow'">
+                    New Flow / 新規フロー
+                </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='users' && 'bg-white/20'" @click="currentView='users'">
+                    Users / ユーザー管理
+                </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='settings' && 'bg-white/20'" @click="currentView='settings'">
+                    Settings / 設定
+                </button>
+            </nav>
+            <div class="px-4 py-4 border-t border-white/10 text-xs">
+                <p>{{ currentUser ? currentUser.username : "Guest" }} ({{ currentUser ? currentUser.role : "viewer" }})</p>
+                <button class="mt-2 px-3 py-1 bg-white/20 rounded text-sm w-full" @click="logout" v-if="token">ログアウト</button>
+            </div>
+        </aside>
+        <div class="flex-1 flex flex-col">
+            <header class="bg-white shadow px-6 py-4 flex items-center justify-between gap-6">
+                <div>
+                    <h1 class="text-xl font-semibold">MMAM Dashboard</h1>
+                    <p class="text-sm text-slate-500">ST2110 Flow Management</p>
+                </div>
+                <div class="ml-auto flex items-center gap-4">
+                    <div v-if="token" class="text-right">
+                        <p class="text-sm font-semibold">
+                            {{ currentUser ? currentUser.username : "ログイン済み" }}
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            {{ currentUser ? currentUser.role : "" }}
+                        </p>
+                    </div>
+                    <button
+                        v-if="token"
+                        class="px-3 py-2 text-sm rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                        @click="logout"
+                    >
+                        ログアウト
+                    </button>
+                    <form v-else class="flex items-center gap-2 text-sm" @submit.prevent="login">
+                        <input
+                            type="text"
+                            placeholder="username"
+                            class="border rounded px-3 py-2"
+                            v-model="loginForm.username"
+                        />
+                        <input
+                            type="password"
+                            placeholder="password"
+                            class="border rounded px-3 py-2"
+                            v-model="loginForm.password"
+                        />
+                        <button
+                            type="submit"
+                            class="bg-emerald-600 text-white rounded px-3 py-2"
+                        >
+                            ログイン
+                        </button>
+                    </form>
+                </div>
+            </header>
+        <main class="flex-1 p-6 overflow-auto space-y-6">
+            <template v-if="currentView==='dashboard'">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <section class="bg-white p-4 rounded shadow-lg space-y-3">
+                    <h2 class="font-semibold text-lg">サマリー</h2>
+                    <div class="grid grid-cols-2 gap-3 text-center">
+                        <div class="bg-slate-100 rounded p-3">
+                            <div class="text-2xl font-bold">{{ summary.total }}</div>
+                            <div class="text-xs text-slate-500">Total Flows</div>
+                        </div>
+                        <div class="bg-slate-100 rounded p-3">
+                            <div class="text-2xl font-bold text-emerald-600">{{ summary.active }}</div>
+                            <div class="text-xs text-slate-500">Active</div>
+                        </div>
+                    </div>
+                    <button class="w-full text-sm text-slate-600 underline" @click="refreshFlows">最新化</button>
+                </section>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <section class="bg-white rounded shadow-lg p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-semibold text-lg">フロー一覧</h2>
+                        <div class="flex gap-2">
+                            <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.limit" />
+                            <input type="number" min="0" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.offset" />
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="refreshFlows">更新</button>
+                        </div>
+                    </div>
+                    <div class="space-y-2 max-h-[420px] overflow-auto">
+                        <article v-for="flow in flows" :key="flow.flow_id" class="border rounded p-3 flex justify-between items-start">
+                            <div>
+                                <h3 class="font-semibold">{{ flow.display_name || flow.flow_id }}</h3>
+                                <p class="text-xs text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
+                                <p class="text-xs text-slate-400">更新: {{ flow.updated_at }}</p>
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <button class="text-xs text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
+                                <button class="text-xs text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                            </div>
+                        </article>
+                        <p v-if="flows.length === 0" class="text-sm text-slate-500">フローが見つかりません。</p>
+                    </div>
+                </section>
+            </div>
+            </div>
+
+            <section class="bg-white rounded shadow-lg p-4">
+                <h2 class="font-semibold text-lg mb-2">デバッグコンソール</h2>
+                <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 max-h-60 overflow-auto">{{ logs.join("\n") }}</pre>
+            </section>
+            </template>
+
+            <template v-else-if="currentView==='flows'">
+                <section class="bg-white rounded shadow-lg p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-semibold text-lg">フロー一覧</h2>
+                        <div class="flex items-center gap-2 text-sm">
+                            <label>limit <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1" v-model.number="filters.limit" /></label>
+                            <label>offset <input type="number" min="0" class="w-20 border rounded px-2 py-1" v-model.number="filters.offset" /></label>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded" @click="refreshFlows">更新</button>
+                        </div>
+                    </div>
+                    <div class="overflow-auto">
+                        <table class="w-full text-sm border border-slate-200">
+                            <thead class="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">表示名</th>
+                                    <th class="px-3 py-2 text-left">flow_id</th>
+                                    <th class="px-3 py-2 text-left">status</th>
+                                    <th class="px-3 py-2 text-left">Source A</th>
+                                    <th class="px-3 py-2 text-left">Multicast A</th>
+                                    <th class="px-3 py-2 text-left">Source B</th>
+                                    <th class="px-3 py-2 text-left">Multicast B</th>
+                                    <th class="px-3 py-2 text-left">更新日時</th>
+                                    <th class="px-3 py-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="flow in flows" :key="flow.flow_id" class="border-t hover:bg-slate-50">
+                                    <td class="px-3 py-2 font-semibold">{{ flow.display_name || '-' }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.flow_status }}/{{ flow.availability }}</td>
+                                    <td class="px-3 py-2 text-xs font-mono">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
+                                    <td class="px-3 py-2 text-xs font-mono">{{ flow.multicast_addr_a }}:{{ flow.group_port_a }}</td>
+                                    <td class="px-3 py-2 text-xs font-mono">{{ flow.source_addr_b }}:{{ flow.source_port_b }}</td>
+                                    <td class="px-3 py-2 text-xs font-mono">{{ flow.multicast_addr_b }}:{{ flow.group_port_b }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.updated_at }}</td>
+                                    <td class="px-3 py-2 text-xs">
+                                        <div class="flex flex-col gap-1">
+                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
+                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="flows.length === 0">
+                                    <td colspan="9" class="text-center py-4 text-slate-500">フローが見つかりません。</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </template>
+
+            <template v-else-if="currentView==='search'">
+                <div class="space-y-6">
+                    <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div>
+                            <h2 class="font-semibold text-lg">Quick Search / 簡易検索</h2>
+                            <p class="text-xs text-slate-500">全テキスト項目から入力したキーワードを部分一致で検索します。</p>
+                        </div>
+                        <div class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4 text-sm">
+                            <label class="flex-1 flex flex-col gap-1 text-slate-600">
+                                Keyword / キーワード
+                                <input type="text" class="border rounded px-3 py-2" v-model="quickSearch.term" placeholder="studio / 239.10.0.1" />
+                            </label>
+                            <label class="flex flex-col gap-1 text-slate-600">
+                                Limit
+                                <input type="number" min="1" max="200" class="border rounded px-3 py-2" v-model.number="quickSearch.limit" />
+                            </label>
+                            <button class="bg-slate-900 text-white rounded px-4 py-2 md:self-end" @click="runQuickSearch">
+                                Search
+                            </button>
+                        </div>
+                    </section>
+
+                    <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 class="font-semibold text-lg">Advanced Search / 詳細検索</h2>
+                                <p class="text-xs text-slate-500">項目ごとに入力し、数値や日時は範囲指定が可能です。</p>
+                            </div>
+                            <button
+                                class="text-xs text-slate-600 border rounded px-3 py-1 self-start"
+                                @click="toggleAdvancedCollapse"
+                            >
+                                {{ advancedCollapsed ? '▼ Expand / 展開' : '▲ Collapse / 縮小' }}
+                            </button>
+                        </div>
+                        <div class="grid gap-3" v-show="!advancedCollapsed">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-500">
+                                <label>Display Name
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.display_name" placeholder="ex. Studio" />
+                                </label>
+                                <label>Flow ID
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.flow_id" placeholder="UUID" />
+                                </label>
+                                <label>Source Address A
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.source_addr_a" />
+                                </label>
+                                <label>Source Address B
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.source_addr_b" />
+                                </label>
+                                <label>Multicast Address A
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.multicast_addr_a" />
+                                </label>
+                                <label>Multicast Address B
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.multicast_addr_b" />
+                                </label>
+                                <label>Transport Protocol
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.transport_protocol" />
+                                </label>
+                                <label>Label / Alias
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.alias1" placeholder="Alias contains" />
+                                </label>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-500">
+                                <div>
+                                    <p class="font-semibold mb-2 text-slate-600">Port Range / ポート範囲</p>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <label>Src A Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.source_port_a_min" />
+                                        </label>
+                                        <label>Src A Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.source_port_a_max" />
+                                        </label>
+                                        <label>Src B Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.source_port_b_min" />
+                                        </label>
+                                        <label>Src B Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.source_port_b_max" />
+                                        </label>
+                                        <label>Group A Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.group_port_a_min" />
+                                        </label>
+                                        <label>Group A Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.group_port_a_max" />
+                                        </label>
+                                        <label>Group B Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.group_port_b_min" />
+                                        </label>
+                                        <label>Group B Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.group_port_b_max" />
+                                        </label>
+                                        <label>IS-04 Port Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.nmos_is04_port_min" />
+                                        </label>
+                                        <label>IS-04 Port Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.nmos_is04_port_max" />
+                                        </label>
+                                        <label>IS-05 Port Min
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.nmos_is05_port_min" />
+                                        </label>
+                                        <label>IS-05 Port Max
+                                            <input type="number" class="w-full border rounded px-2 py-1" v-model.number="advancedSearch.nmos_is05_port_max" />
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="font-semibold mb-2 text-slate-600">Date Range / 日時</p>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <label>Updated From
+                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_min" />
+                                        </label>
+                                        <label>Updated To
+                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.updated_at_max" />
+                                        </label>
+                                        <label>Created From
+                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_min" />
+                                        </label>
+                                        <label>Created To
+                                            <input type="datetime-local" class="w-full border rounded px-2 py-1" v-model="advancedSearch.created_at_max" />
+                                        </label>
+                                    </div>
+                                    <div class="mt-3 flex items-center gap-3">
+                                        <label class="flex items-center gap-2 text-xs text-slate-600">
+                                            <input type="checkbox" v-model="advancedSearch.include_unused" />
+                                            Include unused / 論理削除を含む
+                                        </label>
+                                        <label class="text-xs text-slate-600 flex items-center gap-2">
+                                            Limit
+                                            <input type="number" min="1" max="200" class="border rounded px-2 py-1 w-24" v-model.number="advancedSearch.limit" />
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex gap-3">
+                                <button class="bg-slate-900 text-white rounded px-4 py-2 text-sm" @click="runAdvancedSearch">Advanced Search 実行</button>
+                                <button class="px-4 py-2 border rounded text-sm" @click="resetAdvancedSearch">Reset</button>
+                            </div>
+                        </div>
+                        <p v-if="advancedCollapsed" class="text-xs text-slate-500">Advanced search form is hidden. Expand to edit conditions.</p>
+                    </section>
+                </div>
+                <section class="bg-white rounded shadow-lg p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-semibold text-lg">Results / 検索結果</h3>
+                            <p class="text-xs text-slate-500">Mode: {{ searchMode || 'not started' }}</p>
+                        </div>
+                        <button class="text-sm text-slate-600 underline" @click="refreshFlows">Reload latest flows</button>
+                    </div>
+                    <div class="overflow-auto">
+                        <table class="w-full text-sm border border-slate-200 min-w-[760px]">
+                            <thead class="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">Display Name</th>
+                                    <th class="px-3 py-2 text-left">Flow ID</th>
+                                    <th class="px-3 py-2 text-left">Status</th>
+                                    <th class="px-3 py-2 text-left">Source A</th>
+                                    <th class="px-3 py-2 text-left">Multicast A</th>
+                                    <th class="px-3 py-2 text-left">Updated</th>
+                                    <th class="px-3 py-2 text-left">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="flow in searchResults" :key="flow.flow_id" class="border-t hover:bg-slate-50">
+                                    <td class="px-3 py-2 font-semibold">{{ flow.display_name || '-' }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.flow_status }} / {{ flow.availability }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.multicast_addr_a }}:{{ flow.group_port_a }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.updated_at }}</td>
+                                    <td class="px-3 py-2 text-xs">
+                                        <div class="flex flex-col gap-1">
+                                            <button class="text-slate-600 underline" @click="showFlow(flow.flow_id)">詳細</button>
+                                            <button class="text-emerald-600 underline" @click="loadFlowForEdit(flow.flow_id)">編集</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="searchResults.length === 0">
+                                    <td colspan="7" class="text-center py-4 text-slate-500">No results / 検索結果がありません。</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </template>
+
+            <template v-else-if="currentView==='newFlow'">
+                <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="font-semibold text-lg">
+                                {{ editingFlowId ? 'フロー更新 / Edit Flow' : 'フロー登録 (Manual)' }}
+                            </h2>
+                            <p v-if="editingFlowId" class="text-xs text-slate-500">編集中: {{ editingFlowId }}</p>
+                        </div>
+                        <div class="flex gap-3">
+                            <button class="px-3 py-2 border rounded text-sm" @click="resetFlowForm">リセット</button>
+                            <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="submitFlow">
+                                {{ editingFlowId ? '更新' : '登録' }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <div v-for="group in fieldGroups" :key="group.title" class="border rounded p-4">
+                            <h3 class="font-semibold text-base mb-3">{{ group.title }}</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label v-for="field in group.fields" :key="field.key" class="text-xs text-slate-500 space-y-1">
+                                    {{ field.label }}
+                                    <template v-if="field.type === 'textarea'">
+                                        <textarea class="w-full border rounded px-3 py-2" rows="field.rows || 3" v-model="newFlow[field.key]"></textarea>
+                                    </template>
+                                    <template v-else-if="field.type === 'select'">
+                                        <select class="w-full border rounded px-3 py-2" v-model="newFlow[field.key]">
+                                            <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                                        </select>
+                                    </template>
+                                    <template v-else-if="field.key === 'flow_id'">
+                                        <input
+                                            type="text"
+                                            class="w-full border rounded px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                                            v-model="newFlow[field.key]"
+                                            :disabled="newFlow.data_source === 'manual'"
+                                            placeholder="Auto assigned / NMOS Flow ID"
+                                        />
+                                        <span class="text-[10px] text-slate-500 block">
+                                            Manual登録時は自動採番。NMOS/RDS連携時のみ編集できます。
+                                        </span>
+                                    </template>
+                                    <template v-else>
+                                        <input
+                                            :type="field.type === 'number' ? 'number' : 'text'"
+                                            class="w-full border rounded px-3 py-2"
+                                            v-model="newFlow[field.key]"
+                                        />
+                                    </template>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-500">将来的に NMOS / RDS ウィザードから自動入力できるように設計しています。</p>
+                </section>
+            </template>
+
+            <template v-else-if="currentView==='users'">
+                <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-semibold text-lg">ユーザー管理</h2>
+                        <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchUsers">再読み込み</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <label class="text-xs text-slate-500">ユーザー名
+                            <input class="w-full border rounded px-3 py-2" v-model="newUser.username" />
+                        </label>
+                        <label class="text-xs text-slate-500">パスワード
+                            <input type="password" class="w-full border rounded px-3 py-2" v-model="newUser.password" />
+                        </label>
+                        <label class="text-xs text-slate-500">ロール
+                            <select class="w-full border rounded px-3 py-2" v-model="newUser.role">
+                                <option value="viewer">viewer</option>
+                                <option value="editor">editor</option>
+                                <option value="admin">admin</option>
+                            </select>
+                        </label>
+                    </div>
+                    <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="createUser">ユーザー追加</button>
+                    <div class="overflow-auto">
+                        <table class="w-full text-sm border border-slate-200">
+                            <thead class="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">ユーザー名</th>
+                                    <th class="px-3 py-2 text-left">ロール</th>
+                                    <th class="px-3 py-2 text-left">作成日</th>
+                                    <th class="px-3 py-2 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="user in users" :key="user.username" class="border-t">
+                                    <td class="px-3 py-2 font-semibold">{{ user.username }}</td>
+                                    <td class="px-3 py-2">
+                                        <select class="border rounded px-2 py-1 text-xs" v-model="user.role" @change="updateUserInfo(user)">
+                                            <option value="viewer">viewer</option>
+                                            <option value="editor">editor</option>
+                                            <option value="admin">admin</option>
+                                        </select>
+                                    </td>
+                                    <td class="px-3 py-2 text-xs">{{ user.created_at }}</td>
+                                    <td class="px-3 py-2 text-xs text-center">
+                                        <button class="text-emerald-600 underline mr-3" @click="updateUserInfo(user)">保存</button>
+                                        <button class="text-red-500 underline" @click="deleteUser(user.username)">削除</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="users.length === 0">
+                                    <td colspan="4" class="text-center py-4 text-slate-500">ユーザーがいません。</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </template>
+
+            <template v-else-if="currentView==='settings'">
+                <div class="space-y-4">
+                    <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="font-semibold text-lg">接続設定</h2>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="loadBaseUrl">再読み込み</button>
+                        </div>
+                        <label class="text-sm text-slate-500">API ベースURL
+                            <input type="text" v-model="baseUrl" class="w-full border rounded px-3 py-2 mt-1" placeholder="http://10.59.100.111:8080" />
+                        </label>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-2 bg-slate-900 text-white rounded text-sm" @click="saveBaseUrl">保存</button>
+                            <button class="px-3 py-2 border rounded text-sm" @click="loadBaseUrl">リセット</button>
+                        </div>
+                        <p class="text-xs text-slate-500">ブラウザのローカルストレージに保存されます。</p>
+                        <div class="border-t pt-4 space-y-2">
+                            <h3 class="font-semibold text-base">ログイン</h3>
+                            <p class="text-xs text-slate-500">現在: {{ currentUser ? currentUser.username : "未ログイン" }}</p>
+                            <div v-if="!token" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <input type="text" v-model="loginForm.username" placeholder="username" class="border rounded px-3 py-2" />
+                                <input type="password" v-model="loginForm.password" placeholder="password" class="border rounded px-3 py-2" />
+                                <button class="bg-emerald-600 text-white rounded px-3 py-2" @click="login">ログイン</button>
+                            </div>
+                            <div v-else class="text-xs text-slate-500">ログイン済みです。再ログインする場合はログアウト後に再入力してください。</div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="font-semibold text-lg">アプリ設定</h2>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchSettings">再読み込み</button>
+                        </div>
+                        <div class="space-y-2">
+                            <div v-for="(value, key) in settings" :key="key" class="border rounded p-3 flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm font-semibold">{{ key }}</p>
+                                    <p class="text-xs text-slate-500">現在値: {{ value }}</p>
+                                </div>
+                                <button class="px-3 py-1 border rounded text-sm" @click="updateSetting(key, value === true ? false : true)" v-if="typeof value === 'boolean'">
+                                    {{ value ? '無効化' : '有効化' }}
+                                </button>
+                                <button class="px-3 py-1 border rounded text-sm" v-else disabled>編集不可</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </template>
+
+            <template v-else>
+                <section class="bg-white rounded shadow-lg p-6 text-sm text-slate-500">
+                    このセクションはまだ実装されていません。
+                </section>
+            </template>
+
+            <div v-if="detailFlow" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                <div class="bg-white rounded shadow-lg w-full max-w-4xl max-h-[80vh] overflow-auto">
+                    <div class="flex justify-between items-center px-6 py-4 border-b">
+                        <div>
+                            <h3 class="text-lg font-semibold" v-text="detailFlow ? (detailFlow.display_name || detailFlow.flow_id) : ''"></h3>
+                            <p class="text-xs text-slate-500">
+                                flow_id:
+                                <span class="font-mono" v-text="detailFlow ? detailFlow.flow_id : ''"></span>
+                            </p>
+                        </div>
+                        <button class="text-sm text-slate-500" @click="closeDetail">閉じる</button>
+                    </div>
+                    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div v-for="entry in detailEntries" :key="entry[0]" class="border rounded p-3 flex flex-col gap-1">
+                            <p class="text-xs text-slate-500 uppercase tracking-wide" v-text="entry[0]"></p>
+                            <p class="font-mono text-xs break-words whitespace-pre-wrap" v-text="entry[1]"></p>
+                        </div>
+                        <p v-if="detailEntries.length === 0" class="text-center text-xs text-slate-500">データがありません。</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+        </div>
+    </div>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="./main.js"></script>
+</body>
+</html>
