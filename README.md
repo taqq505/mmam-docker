@@ -2,6 +2,8 @@
 
 > English version of this document is included below.
 
+![NMOS](https://img.shields.io/badge/NMOS-IS--04-informational)
+![NMOS](https://img.shields.io/badge/NMOS-IS--05-informational)
 Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの登録・検索・ユーザー管理を行うシンプルな管理ツールです。FastAPI + PostgreSQL をバックエンドに、Vue 3 + Tailwind CSS の軽量なフロントエンドを nginx から配信します。
 
 🛰️ このプロジェクトは NMOS (IS-04 / IS-05) と SMPTE ST 2110 ワークフローをサポートしています。 #NMOS #ST2110
