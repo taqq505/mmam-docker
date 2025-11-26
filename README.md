@@ -53,6 +53,25 @@ docker-compose.yml
 - New Flow で手動登録、NMOS Wizard で `/api/nmos/discover` 結果から一括インポート。
 - Settings では API Base URL やログイン情報、DB設定のトグル、Hard Delete フォームを提供。
 
+### NMOS 連携
+
+`NMOS Wizard` ビューでは、IS-04 (Node API) / IS-05 (Connection API) のベースURLを入力し `Discover` を実行すると `/api/nmos/discover` が呼び出されます。レスポンスは以下を含みます。
+
+- `node`: 選択した NMOS ノードのラベル、説明、ID など。
+- `flows`: IS-04 の Flow / Sender / Device / SDP 情報を束ねた一覧。UI ではチェックボックスで複数選択でき、まとめて MMAM の `flows` テーブルへ `POST /api/flows` します。
+
+CDNベースのUIのみで NMOS ネットワークに接続し、複数フローのメタデータを手動入力なしに取り込める点が最大の特徴です。Transport, Format, Sender/Device IDs だけでなく `node_label`, `node_description`, SDP URL/Cache、ST 2022-7 のソース・マルチキャスト情報も自動セットされます。
+
+### 名前付け・メタデータDBとしての活用
+
+MMAM は単なるアドレス帳以上に、番組・中継現場での「名称レジストリ」として機能します。
+
+- フロー1件につき `alias1`〜`alias8` を持ち、別部署・用途ごとの通称を保存できます。例: 伝送部が「Decoder#1」で受信する信号に対し、制作部が「東京天カメ1番」といった名称を登録。
+- サードパーティのブロードキャストコントローラやオートメーションは REST API 経由で `flow_id` (UUID) をキーに参照し、表示用の名称や補足情報を取得可能。
+- さらに `user_field1`〜`user_field8` を備えており、回線手配番号・担当者・設備IDなど自由なメタデータを管理できます。
+
+この仕組みにより、NMOS Sender / Flow の UUID と部署内で使われる別名を紐付け、散逸しがちな命名情報を一元管理・共有できます。
+
 ## REST API
 
 ベースURLは `http://HOST:8080/api`。JWT を利用した Bearer 認証です。`/api/login` で取得したトークンを `Authorization: Bearer <token>` で送信してください。`DISABLE_AUTH=true` など設定で匿名アクセスを許可することも可能です。
