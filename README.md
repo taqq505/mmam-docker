@@ -57,6 +57,21 @@ docker-compose.yml
 
 ベースURLは `http://HOST:8080/api`。JWT を利用した Bearer 認証です。`/api/login` で取得したトークンを `Authorization: Bearer <token>` で送信してください。`DISABLE_AUTH=true` など設定で匿名アクセスを許可することも可能です。
 
+### 認証と JWT
+
+- トークン発行先: `POST /api/login`
+  - `application/x-www-form-urlencoded` で `username`, `password` を送信。
+  - 成功すると `{ "access_token": "<JWT>", "token_type": "bearer" }` を返却。
+- JWT 仕様
+  - `HS256` (共有鍵は `.env` の `SECRET_KEY`)。
+  - ペイロード: `{"sub": "<username>", "role": "<viewer|editor|admin>", "exp": <1時間後>}`
+  - トークンは 1 時間で期限切れ。更新は再ログインで行う。
+- クライアント送信: すべての保護エンドポイントで `Authorization: Bearer <token>` ヘッダーを付与。
+- 匿名アクセス
+  - `.env`: `DISABLE_AUTH=true` で全面無効化 (開発用)。
+  - DB 設定: `allow_anonymous_flows`, `allow_anonymous_user_lookup` が `true` の場合、該当エンドポイントのみトークンなしで閲覧可能。
+- UI 側ではログイン成功時に token をメモリ保持し、`localStorage` には保存しません。必要に応じてブラウザタブを閉じると無効化されます。
+
 ### 認証 / ユーザー
 
 | Method & Path         | 説明 |
