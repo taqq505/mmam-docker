@@ -4,6 +4,8 @@
 
 Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの登録・検索・ユーザー管理を行うシンプルな管理ツールです。FastAPI + PostgreSQL をバックエンドに、Vue 3 + Tailwind CSS の軽量なフロントエンドを nginx から配信します。
 
+🛰️ このプロジェクトは NMOS (IS-04 / IS-05) と SMPTE ST 2110 ワークフローをサポートしています。 #NMOS #ST2110
+
 ## 構成
 
 ```
@@ -191,6 +193,8 @@ MIT License ( `LICENSE` を参照 )。
 # mmam-docker (English)
 
 Media Multicast Address Manager (MMAM) is a lightweight tool to register, search, and govern ST 2110 / NMOS flows. The backend is FastAPI + PostgreSQL and the frontend is a static Vue 3 + Tailwind CSS site served by nginx.
+
+🛰️ Supports NMOS (IS-04 / IS-05) and SMPTE ST 2110 workflows. #NMOS #ST2110
 
 ## Architecture
 
