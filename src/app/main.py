@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import users, flows
 from app.routers import settings as settings_router
+from app.routers import nmos as nmos_router
 from db_init import init_db
 
 app = FastAPI(title="MMAM API")
@@ -34,6 +35,7 @@ def startup_event():
 app.include_router(users.router, prefix="/api")
 app.include_router(flows.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
+app.include_router(nmos_router.router, prefix="/api")
 
 # --------------------------------------------------------
 # Health check

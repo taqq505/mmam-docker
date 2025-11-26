@@ -16,6 +16,7 @@ TEXT_FILTER_FIELDS = {
     "source_addr_a", "multicast_addr_a",
     "source_addr_b", "multicast_addr_b",
     "transport_protocol",
+    "nmos_node_id",
     "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
     "nmos_is04_host", "nmos_is05_host",
     "sdp_url", "sdp_cache",
@@ -40,7 +41,7 @@ INT_FILTER_FIELDS = {
 FILTER_FIELDS = TEXT_FILTER_FIELDS | INT_FILTER_FIELDS
 
 KEYWORD_SEARCH_FIELDS = [
-    "flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
+    "flow_id", "nmos_node_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
     "display_name",
     "source_addr_a", "source_addr_b",
     "multicast_addr_a", "multicast_addr_b",
@@ -78,6 +79,9 @@ class Flow(BaseModel):
     multicast_addr_b: str | None = None
     group_port_b: int | None = None
     transport_protocol: str | None = "RTP/UDP"
+    nmos_node_id: str | None = None
+    nmos_node_label: str | None = None
+    nmos_node_description: str | None = None
     nmos_flow_id: str | None = None
     nmos_sender_id: str | None = None
     nmos_device_id: str | None = None
@@ -129,6 +133,9 @@ class FlowUpdate(BaseModel):
     multicast_addr_b: str | None = None
     group_port_b: int | None = None
     transport_protocol: str | None = None
+    nmos_node_id: str | None = None
+    nmos_node_label: str | None = None
+    nmos_node_description: str | None = None
     nmos_flow_id: str | None = None
     nmos_sender_id: str | None = None
     nmos_device_id: str | None = None
@@ -197,8 +204,9 @@ def list_flows(
 
     # ✅ デフォルト項目
     base_fields = [
-        "flow_id", "display_name", "flow_status",
-        "availability", "created_at", "updated_at"
+        "flow_id", "display_name", "nmos_node_label",
+        "flow_status", "availability",
+        "created_at", "updated_at"
     ]
 
     # ✅ 追加フィールドを処理（カンマ区切り→トリム→重複除去）
@@ -326,6 +334,27 @@ def list_flows(
     return [dict(zip(colnames, row)) for row in rows]
 
 
+@router.get("/flows/summary")
+def flow_summary(
+    user=Depends(require_roles("viewer", "editor", "admin", allow_anonymous_setting="allow_anonymous_flows"))
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE flow_status = 'active') AS active
+        FROM flows;
+    """)
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    total = row[0] if row else 0
+    active = row[1] if row else 0
+    return {"total": total, "active": active}
+
+
 @router.get("/flows/{flow_id}")
 def get_flow_detail(
     flow_id: str,
@@ -388,48 +417,37 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
 
     conn = get_db_connection()
     cur = conn.cursor()
+    cur.execute("SELECT flow_status FROM flows WHERE flow_id=%s;", (flow_id,))
+    existing = cur.fetchone()
+    if existing and existing[0] != "unused":
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=409, detail="Flow ID already exists")
     try:
-        cur.execute("""
-            INSERT INTO flows (
-                flow_id, display_name,
-                source_addr_a, source_port_a, multicast_addr_a, group_port_a,
-                source_addr_b, source_port_b, multicast_addr_b, group_port_b,
-                transport_protocol,
-                nmos_flow_id, nmos_sender_id, nmos_device_id,
-                nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
-                sdp_url, sdp_cache,
-                nmos_label, nmos_description, management_url,
-                media_type, st2110_format, redundancy_group,
-                alias1, alias2, alias3, alias4, alias5, alias6, alias7, alias8,
-                flow_status, availability, last_seen,
-                data_source, rds_address, rds_api_url,
-                user_field1, user_field2, user_field3, user_field4,
-                user_field5, user_field6, user_field7, user_field8,
-                note
-            )
-            VALUES (
-                %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s,
-                %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s,
-                %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s
-            )
-            ON CONFLICT (flow_id) DO NOTHING;
-        """, (
+        columns = [
+            "flow_id", "display_name",
+            "source_addr_a", "source_port_a", "multicast_addr_a", "group_port_a",
+            "source_addr_b", "source_port_b", "multicast_addr_b", "group_port_b",
+            "transport_protocol",
+            "nmos_node_id", "nmos_node_label", "nmos_node_description",
+            "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
+            "nmos_is04_host", "nmos_is04_port", "nmos_is05_host", "nmos_is05_port",
+            "sdp_url", "sdp_cache",
+            "nmos_label", "nmos_description", "management_url",
+            "media_type", "st2110_format", "redundancy_group",
+            "alias1", "alias2", "alias3", "alias4", "alias5", "alias6", "alias7", "alias8",
+            "flow_status", "availability", "last_seen",
+            "data_source", "rds_address", "rds_api_url",
+            "user_field1", "user_field2", "user_field3", "user_field4",
+            "user_field5", "user_field6", "user_field7", "user_field8",
+            "note"
+        ]
+        values = [
             flow_id, flow.display_name,
             flow.source_addr_a, flow.source_port_a, flow.multicast_addr_a, flow.group_port_a,
             flow.source_addr_b, flow.source_port_b, flow.multicast_addr_b, flow.group_port_b,
             flow.transport_protocol,
+            flow.nmos_node_id, flow.nmos_node_label, flow.nmos_node_description,
             flow.nmos_flow_id, flow.nmos_sender_id, flow.nmos_device_id,
             flow.nmos_is04_host, flow.nmos_is04_port, flow.nmos_is05_host, flow.nmos_is05_port,
             flow.sdp_url, flow.sdp_cache,
@@ -442,7 +460,20 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
             flow.user_field1, flow.user_field2, flow.user_field3, flow.user_field4,
             flow.user_field5, flow.user_field6, flow.user_field7, flow.user_field8,
             flow.note
-        ))
+        ]
+        columns_sql = ", ".join(columns)
+        placeholders = ", ".join(["%s"] * len(columns))
+        update_sql = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns if col != "flow_id"])
+        cur.execute(
+            f"""
+            INSERT INTO flows ({columns_sql})
+            VALUES ({placeholders})
+            ON CONFLICT (flow_id) DO UPDATE SET
+                {update_sql},
+                updated_at = NOW();
+            """,
+            values
+        )
         conn.commit()
     finally:
         cur.close()
@@ -471,3 +502,22 @@ def delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     cur.close()
     conn.close()
     return {"result": "ok", "flow_id": flow_id, "deleted": True}
+
+
+@router.delete("/flows/{flow_id}/hard")
+def hard_delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
+    """
+    Permanently remove a flow record from the database.
+    フローの行を完全削除する危険操作（管理者のみ）。
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM flows WHERE flow_id=%s;", (flow_id,))
+    if cur.rowcount == 0:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Flow not found / 該当フローなし")
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"result": "ok", "flow_id": flow_id, "hard_deleted": True}

@@ -2,6 +2,7 @@ import os
 import psycopg2
 import time
 import bcrypt
+import uuid
 
 # Database connection settings
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -18,6 +19,7 @@ SETTINGS_DEFAULTS = {
     "allow_anonymous_flows": "false",
     "allow_anonymous_user_lookup": "false"
 }
+INIT_SAMPLE_FLOW = os.getenv("INIT_SAMPLE_FLOW", "true").lower() == "true"
 
 
 def init_db(max_retries: int = 10, wait_sec: int = 3):
@@ -80,9 +82,12 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         transport_protocol TEXT,
 
         -- NMOS metadata
+        nmos_node_id UUID,
         nmos_flow_id UUID,
         nmos_sender_id UUID,
         nmos_device_id UUID,
+        nmos_node_label TEXT,
+        nmos_node_description TEXT,
         nmos_is04_host TEXT,
         nmos_is04_port INTEGER,
         nmos_is05_host TEXT,
@@ -140,6 +145,8 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
     """)
     conn.commit()
 
+    insert_sample_flow(cur, conn)
+
     # --------------------------------------------------------
     # Settings table
     # --------------------------------------------------------
@@ -183,3 +190,36 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
 
     cur.close()
     conn.close()
+
+
+def insert_sample_flow(cur, conn):
+    if not INIT_SAMPLE_FLOW:
+        return
+    cur.execute("SELECT COUNT(*) FROM flows;")
+    count = cur.fetchone()[0]
+    if count > 0:
+        return
+
+    sample_flow_id = str(uuid.uuid4())
+    cur.execute("""
+        INSERT INTO flows (
+            flow_id, display_name,
+            source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+            flow_status, availability, data_source,
+            note
+        ) VALUES (
+            %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s,
+            %s
+        )
+    """, (
+        sample_flow_id,
+        "Sample Flow",
+        "10.0.0.10", 5000,
+        "239.0.0.10", 6000,
+        "active", "available", "manual",
+        "Initial sample flow for testing."
+    ))
+    conn.commit()
+    print(f"Inserted sample flow {sample_flow_id}.")

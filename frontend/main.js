@@ -32,23 +32,25 @@ const FIELD_GROUPS = [
     title: "NMOS Metadata",
     fields: [
       { key: "transport_protocol", label: "Transport Protocol" },
+      { key: "nmos_node_id", label: "NMOS Node ID" },
+      { key: "nmos_node_label", label: "NMOS Node Label" },
+      { key: "nmos_node_description", label: "NMOS Node Description" },
       { key: "nmos_flow_id", label: "NMOS Flow ID" },
       { key: "nmos_sender_id", label: "NMOS Sender ID" },
       { key: "nmos_device_id", label: "NMOS Device ID" },
       { key: "nmos_is04_host", label: "NMOS IS-04 Host" },
       { key: "nmos_is04_port", label: "NMOS IS-04 Port", type: "number" },
       { key: "nmos_is05_host", label: "NMOS IS-05 Host" },
-      { key: "nmos_is05_port", label: "NMOS IS-05 Port", type: "number" }
+      { key: "nmos_is05_port", label: "NMOS IS-05 Port", type: "number" },
+      { key: "nmos_label", label: "NMOS Label" },
+      { key: "nmos_description", label: "NMOS Description" }
     ]
   },
   {
     title: "SDP / Labels",
     fields: [
       { key: "sdp_url", label: "SDP URL" },
-      { key: "sdp_cache", label: "SDP Cache", type: "textarea" },
-      { key: "nmos_label", label: "NMOS Label" },
-      { key: "nmos_description", label: "NMOS Description" },
-      { key: "management_url", label: "Management URL" }
+      { key: "sdp_cache", label: "SDP Cache", type: "textarea" }
     ]
   },
   {
@@ -56,7 +58,8 @@ const FIELD_GROUPS = [
     fields: [
       { key: "media_type", label: "Media Type" },
       { key: "st2110_format", label: "ST2110 Format" },
-      { key: "redundancy_group", label: "Redundancy Group" }
+      { key: "redundancy_group", label: "Redundancy Group" },
+      { key: "management_url", label: "Management URL" }
     ]
   },
   {
@@ -69,8 +72,8 @@ const FIELD_GROUPS = [
   {
     title: "Status / Availability",
     fields: [
-      { key: "flow_status", label: "Flow Status" },
-      { key: "availability", label: "Availability" },
+      { key: "flow_status", label: "Flow Status", type: "select", options: ["active", "unused", "maintenance"] },
+      { key: "availability", label: "Availability", type: "select", options: ["available", "lost", "maintenance"] },
       { key: "last_seen", label: "Last Seen (ISO8601)" }
     ]
   },
@@ -108,6 +111,9 @@ const SORT_FIELDS = [
   { value: "source_addr_a", label: "Source A" }
 ];
 
+const FLOW_STATUS_OPTIONS = ["active", "unused", "maintenance"];
+const AVAILABILITY_OPTIONS = ["available", "lost", "maintenance"];
+
 const DEFAULT_FLOW = () => ({
   flow_id: "",
   display_name: "",
@@ -120,9 +126,12 @@ const DEFAULT_FLOW = () => ({
   multicast_addr_b: "",
   group_port_b: null,
   transport_protocol: "RTP/UDP",
+  nmos_node_id: "",
   nmos_flow_id: "",
   nmos_sender_id: "",
   nmos_device_id: "",
+  nmos_node_label: "",
+  nmos_node_description: "",
   nmos_is04_host: "",
   nmos_is04_port: null,
   nmos_is05_host: "",
@@ -176,6 +185,11 @@ const DEFAULT_ADVANCED_SEARCH = () => ({
   multicast_addr_b: "",
   transport_protocol: "",
   alias1: "",
+  nmos_node_id: "",
+  nmos_node_label: "",
+  nmos_node_description: "",
+  flow_status: "",
+  availability: "",
   source_port_a_min: null,
   source_port_a_max: null,
   source_port_b_min: null,
@@ -201,7 +215,7 @@ createApp({
       token: null,
       currentUser: null,
       currentView: "dashboard",
-      views: ["dashboard", "flows", "search", "newFlow", "users", "settings"],
+      views: ["dashboard", "flows", "search", "newFlow", "wizard", "users", "settings"],
       loginForm: {
         username: "admin",
         password: "admin"
@@ -219,7 +233,10 @@ createApp({
         sort_by: "updated_at",
         sort_order: "desc"
       },
+      pageInput: "1",
       sortFields: SORT_FIELDS,
+      flowStatusOptions: FLOW_STATUS_OPTIONS,
+      availabilityOptions: AVAILABILITY_OPTIONS,
       quickSearch: DEFAULT_QUICK_SEARCH(),
       advancedSearch: DEFAULT_ADVANCED_SEARCH(),
       advancedCollapsed: false,
@@ -240,10 +257,25 @@ createApp({
       },
       newSettingKey: "",
       newSettingValue: "",
+      hardDeleteFlowId: "",
       detailFlow: null,
       detailEntries: [],
       logs: [],
-      fieldGroups: FIELD_GROUPS
+      fieldGroups: FIELD_GROUPS,
+      wizard: {
+        is04BaseUrl: "http://example:8080/x-nmos/",
+        is05BaseUrl: "http://example:8080/x-nmos/",
+        is04Version: "v1.3",
+        is05Version: "v1.1",
+        is04Versions: ["v1.3", "v1.2", "v1.1", "v1.0"],
+        is05Versions: ["v1.1", "v1.0"],
+        flows: [],
+        node: null,
+        loading: false,
+        importing: false,
+        error: "",
+        selections: {}
+      }
     };
   },
   mounted() {
@@ -257,6 +289,37 @@ createApp({
   },
   beforeUnmount() {
     window.removeEventListener("popstate", this.handlePopState);
+  },
+  computed: {
+    normalizedLimit() {
+      const limit = Number(this.filters.limit);
+      if (!Number.isFinite(limit) || limit < 1) {
+        return 20;
+      }
+      return Math.min(500, Math.floor(limit));
+    },
+    currentPageNumber() {
+      return Math.floor(this.filters.offset / this.normalizedLimit) + 1;
+    },
+    canGoPrevious() {
+      return this.filters.offset > 0;
+    },
+    canGoNext() {
+      return this.flows.length === this.normalizedLimit;
+    },
+    wizardSelectedCount() {
+      return Object.values(this.wizard.selections).filter(Boolean).length;
+    },
+    wizardAllSelected() {
+      return (
+        this.wizard.flows.length > 0 &&
+        this.wizard.flows.every(flow => this.isWizardFlowSelected(flow.nmos_flow_id))
+      );
+    },
+    wizardIndeterminate() {
+      const selected = this.wizardSelectedCount;
+      return selected > 0 && selected < this.wizard.flows.length;
+    }
   },
   methods: {
     initializeViewFromHash() {
@@ -296,12 +359,27 @@ createApp({
       this.logs.unshift(`[${stamp}] ${message}`);
       if (this.logs.length > 200) this.logs.pop();
     },
+    defaultBaseUrl() {
+      try {
+        if (typeof window === "undefined" || !window.location) {
+          return "http://localhost:8080";
+        }
+        const { protocol, hostname } = window.location;
+        const safeHost = hostname
+          ? (hostname.includes(":") ? `[${hostname}]` : hostname)
+          : "localhost";
+        return `${protocol}//${safeHost}:8080`;
+      } catch (err) {
+        console.warn("Failed to detect default base URL", err);
+        return "http://localhost:8080";
+      }
+    },
     saveBaseUrl() {
       localStorage.setItem("mmam_base_url", this.baseUrl);
       this.log(`Base URL saved: ${this.baseUrl}`);
     },
     loadBaseUrl() {
-      this.baseUrl = localStorage.getItem("mmam_base_url") || "http://10.59.100.111:8080";
+      this.baseUrl = localStorage.getItem("mmam_base_url") || this.defaultBaseUrl();
     },
     async login() {
       try {
@@ -315,8 +393,13 @@ createApp({
         this.token = json.access_token;
         this.log("Login success");
         await this.fetchMe();
-        await this.fetchSettings();
-        await this.fetchUsers();
+        if (this.currentUser && this.currentUser.role === "admin") {
+          await this.fetchSettings();
+          await this.fetchUsers();
+        } else {
+          this.settings = {};
+          this.users = [];
+        }
         await this.refreshFlows();
       } catch (err) {
         console.error(err);
@@ -347,12 +430,21 @@ createApp({
     },
     async refreshFlows() {
       try {
+        const limit = this.normalizedLimit;
+        const offset = Math.max(0, Math.floor(Number(this.filters.offset) || 0));
+        if (this.filters.limit !== limit) {
+          this.filters.limit = limit;
+        }
+        if (this.filters.offset !== offset) {
+          this.filters.offset = offset;
+        }
         const params = new URLSearchParams({
-          limit: this.filters.limit,
-          offset: this.filters.offset,
+          limit: limit,
+          offset: offset,
           sort_by: this.filters.sort_by,
           sort_order: this.filters.sort_order,
           fields: [
+            "nmos_node_label",
             "source_addr_a",
             "source_port_a",
             "multicast_addr_a",
@@ -369,8 +461,22 @@ createApp({
         if (!resp.ok) throw new Error(`Failed to load flows: ${resp.status}`);
         const list = await resp.json();
         this.flows = list;
-        this.summary.total = this.filters.offset + list.length;
-        this.summary.active = list.filter(f => f.flow_status === "active").length;
+        this.pageInput = String(this.currentPageNumber);
+        await this.fetchFlowSummary();
+      } catch (err) {
+        console.error(err);
+        this.log(err.message);
+      }
+    },
+    async fetchFlowSummary() {
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/summary`, {
+          headers: this.token ? { Authorization: `Bearer ${this.token}` } : {}
+        });
+        if (!resp.ok) throw new Error(`Failed to load summary: ${resp.status}`);
+        const data = await resp.json();
+        this.summary.total = data.total ?? 0;
+        this.summary.active = data.active ?? 0;
       } catch (err) {
         console.error(err);
         this.log(err.message);
@@ -391,6 +497,7 @@ createApp({
           sort_order: "desc",
           q: term,
           fields: [
+            "nmos_node_label",
             "source_addr_a",
             "source_port_a",
             "multicast_addr_a",
@@ -419,6 +526,7 @@ createApp({
           sort_by: "updated_at",
           sort_order: "desc",
           fields: [
+            "nmos_node_label",
             "source_addr_a",
             "source_port_a",
             "multicast_addr_a",
@@ -438,7 +546,10 @@ createApp({
           "multicast_addr_a",
           "multicast_addr_b",
           "transport_protocol",
-          "alias1"
+          "nmos_node_id",
+          "alias1",
+          "flow_status",
+          "availability"
         ];
         let hasTextCondition = false;
         textFields.forEach(field => {
@@ -537,6 +648,38 @@ createApp({
     closeDetail() {
       this.detailFlow = null;
       this.detailEntries = [];
+    },
+    nextPage() {
+      const limit = this.normalizedLimit;
+      if (this.flows.length < limit) {
+        this.log("No more flows / これ以上フローがありません。");
+        return;
+      }
+      this.filters.offset += limit;
+      this.refreshFlows();
+    },
+    prevPage() {
+      if (!this.canGoPrevious) {
+        this.log("Already at first page / 先頭ページです。");
+        return;
+      }
+      this.filters.offset = Math.max(0, this.filters.offset - this.normalizedLimit);
+      this.refreshFlows();
+    },
+    applyPageInput() {
+      const page = Number(this.pageInput);
+      if (!page || page < 1) {
+        this.pageInput = String(this.currentPageNumber);
+        return;
+      }
+      const limit = this.normalizedLimit;
+      const newOffset = (page - 1) * limit;
+      if (newOffset === this.filters.offset) {
+        this.pageInput = String(this.currentPageNumber);
+        return;
+      }
+      this.filters.offset = newOffset;
+      this.refreshFlows();
     },
     async submitFlow() {
       try {
@@ -697,6 +840,181 @@ createApp({
       } catch (err) {
         this.log(err.message);
       }
+    },
+    async hardDeleteFlow() {
+      const flowId = this.hardDeleteFlowId.trim();
+      if (!flowId) {
+        this.log("Flow ID is required for hard delete");
+        return;
+      }
+      if (!confirm(`Permanently delete flow ${flowId}? This cannot be undone.`)) {
+        return;
+      }
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/${flowId}/hard`, {
+          method: "DELETE",
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(`Failed to hard delete flow: ${resp.status} ${detail}`);
+        }
+        this.log(`Hard deleted flow: ${flowId}`);
+        this.hardDeleteFlowId = "";
+        await this.refreshFlows();
+      } catch (err) {
+        this.log(err.message);
+      }
+    },
+    copyIs04ToIs05() {
+      this.wizard.is05BaseUrl = this.wizard.is04BaseUrl;
+    },
+    async fetchNmosFlows() {
+      if (!this.wizard.is04BaseUrl || !this.wizard.is05BaseUrl) {
+        this.log("NMOS base URLs are required / IS-04 と IS-05 エンドポイントを入力してください");
+        return;
+      }
+      this.wizard.loading = true;
+      this.wizard.error = "";
+      this.wizard.flows = [];
+      this.wizard.node = null;
+      this.wizard.selections = {};
+      try {
+        const requestPayload = {
+          is04_base_url: this.wizard.is04BaseUrl,
+          is05_base_url: this.wizard.is05BaseUrl,
+          is04_version: this.wizard.is04Version,
+          is05_version: this.wizard.is05Version
+        };
+        console.log("[wizard] discover payload", requestPayload);
+        const resp = await fetch(`${this.baseUrl}/api/nmos/discover`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify(requestPayload)
+        });
+        if (!resp.ok) {
+          let errText = await resp.text();
+          try {
+            const parsed = JSON.parse(errText);
+            if (parsed.detail) {
+              if (typeof parsed.detail === "string") {
+                errText = parsed.detail;
+              } else {
+                errText = JSON.stringify(parsed.detail);
+              }
+            } else {
+              errText = JSON.stringify(parsed);
+            }
+          } catch {
+            errText = errText || resp.statusText;
+          }
+          throw new Error(`NMOS discover failed: ${resp.status} ${errText}`);
+        }
+        const data = await resp.json();
+        this.wizard.flows = data.flows || [];
+        this.wizard.node = data.node || null;
+        this.log(`NMOS discover success (${this.wizard.flows.length} flows)`);
+      } catch (err) {
+        this.wizard.error = err.message;
+        this.log(err.message);
+      } finally {
+        this.wizard.loading = false;
+      }
+    },
+    toggleWizardSelection(flowId, checked) {
+      if (checked) {
+        this.wizard.selections[flowId] = true;
+      } else {
+        delete this.wizard.selections[flowId];
+      }
+    },
+    toggleWizardSelectAll(checked) {
+      const nextSelections = { ...this.wizard.selections };
+      if (checked) {
+        this.wizard.flows.forEach(flow => {
+          nextSelections[flow.nmos_flow_id] = true;
+        });
+      } else {
+        this.wizard.flows.forEach(flow => {
+          delete nextSelections[flow.nmos_flow_id];
+        });
+      }
+      this.wizard.selections = nextSelections;
+    },
+    isWizardFlowSelected(flowId) {
+      return !!this.wizard.selections[flowId];
+    },
+    async importSelectedFlows() {
+      const selectedIds = Object.keys(this.wizard.selections).filter(id => this.wizard.selections[id]);
+      if (selectedIds.length === 0) {
+        this.log("No NMOS flows selected / フローを選択してください");
+        return;
+      }
+      this.wizard.importing = true;
+      let success = 0;
+      for (const id of selectedIds) {
+        const flow = this.wizard.flows.find(item => item.nmos_flow_id === id);
+        if (!flow) continue;
+        const payload = {
+          flow_id: flow.nmos_flow_id,
+          display_name: flow.label,
+          nmos_node_id: flow.nmos_node_id,
+          nmos_node_label: flow.node_label || flow.nmos_node_label,
+          nmos_node_description: flow.node_description || flow.nmos_node_description,
+          nmos_node_label: flow.nmos_node_label,
+          nmos_node_description: flow.nmos_node_description,
+          nmos_flow_id: flow.nmos_flow_id,
+          nmos_sender_id: flow.nmos_sender_id,
+          nmos_device_id: flow.nmos_device_id,
+          nmos_is04_host: flow.nmos_is04_host,
+          nmos_is04_port: flow.nmos_is04_port,
+          nmos_is05_host: flow.nmos_is05_host,
+          nmos_is05_port: flow.nmos_is05_port,
+          nmos_label: flow.label,
+          nmos_description: flow.description,
+          transport_protocol: flow.sender_transport || "RTP/UDP",
+          data_source: "nmos",
+          note: flow.description,
+          sdp_url: flow.sdp_url || flow.sender_manifest || null,
+          sdp_cache: flow.sdp_cache || null,
+        source_addr_a: flow.source_addr_a || null,
+        source_addr_b: flow.source_addr_b || null,
+        multicast_addr_a: flow.multicast_addr_a || null,
+        multicast_addr_b: flow.multicast_addr_b || null,
+        group_port_a: flow.group_port_a || null,
+        group_port_b: flow.group_port_b || null,
+        source_port_a: flow.source_port_a || null,
+        source_port_b: flow.source_port_b || null,
+        media_type: flow.media_type || null,
+        st2110_format: flow.st2110_format || null,
+        redundancy_group: flow.redundancy_group || null
+      };
+        ["group_port_a", "group_port_b", "source_port_a", "source_port_b"].forEach(key => {
+          if (payload[key] === "" || payload[key] === undefined) {
+            payload[key] = null;
+            return;
+          }
+          const parsed = Number(payload[key]);
+          payload[key] = Number.isFinite(parsed) ? parsed : null;
+        });
+        try {
+          const resp = await fetch(`${this.baseUrl}/api/flows`, {
+            method: "POST",
+            headers: this.authHeaders(),
+            body: JSON.stringify(payload)
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          this.log(`Imported flow ${data.flow_id}`);
+          success += 1;
+        } catch (err) {
+          this.log(`Failed to import ${flow.label}: ${err.message}`);
+        }
+      }
+      if (success > 0) {
+        await this.refreshFlows();
+      }
+      this.wizard.importing = false;
     },
     closeDetail() {
       this.detailFlow = null;

@@ -39,6 +39,9 @@
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='newFlow' && 'bg-white/20'" @click="navigate('newFlow')">
                     New Flow / 新規フロー
                 </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='wizard' && 'bg-white/20'" @click="navigate('wizard')">
+                    NMOS Wizard / インポート
+                </button>
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='users' && 'bg-white/20'" @click="navigate('users')">
                     Users / ユーザー管理
                 </button>
@@ -118,9 +121,9 @@
                 <section class="bg-white rounded shadow-lg p-4">
                     <div class="flex items-center justify-between mb-4">
                         <h2 class="font-semibold text-lg">Flows / フロー一覧</h2>
-                        <div class="flex gap-2">
-                            <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.limit" />
-                            <input type="number" min="0" class="w-20 border rounded px-2 py-1 text-sm" v-model.number="filters.offset" />
+                        <div class="flex flex-wrap gap-2">
+                            <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1 text-sm bg-white" v-model.number="filters.limit" />
+                            <input type="number" min="0" class="w-20 border rounded px-2 py-1 text-sm bg-white" v-model.number="filters.offset" />
                             <select class="border rounded px-2 py-1 text-sm" v-model="filters.sort_by">
                                 <option v-for="option in sortFields" :key="option.value" :value="option.value">
                                     {{ option.label }}
@@ -133,10 +136,29 @@
                             <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="refreshFlows">Refresh</button>
                         </div>
                     </div>
+                    <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600 mb-3">
+                        <span>Page / ページ</span>
+                        <input type="number" min="1" class="w-20 border rounded px-2 py-1 bg-white" v-model="pageInput" />
+                        <button class="px-3 py-1 rounded text-white bg-slate-900 text-xs hover:bg-slate-800 transition" @click="applyPageInput">Go / 移動</button>
+                        <button class="px-3 py-1 rounded text-xs transition"
+                            :class="canGoPrevious ? 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-900' : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'"
+                            @click="prevPage"
+                            :disabled="!canGoPrevious">
+                            Previous / 前へ
+                        </button>
+                        <button class="px-3 py-1 rounded text-xs transition"
+                            :class="canGoNext ? 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-900' : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'"
+                            @click="nextPage"
+                            :disabled="!canGoNext">
+                            Next / 次へ
+                        </button>
+                        <span class="text-[11px] text-slate-500">Current: {{ currentPageNumber }}</span>
+                    </div>
                     <div class="space-y-2 max-h-[420px] overflow-auto">
                         <article v-for="flow in flows" :key="flow.flow_id" class="border rounded p-3 flex justify-between items-start">
                             <div>
                                 <h3 class="font-semibold">{{ flow.display_name || flow.flow_id }}</h3>
+                                <p v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</p>
                                 <p class="text-xs text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
                                 <p class="text-xs text-slate-400">Updated: {{ flow.updated_at }}</p>
                             </div>
@@ -162,8 +184,8 @@
                     <div class="flex items-center justify-between">
                         <h2 class="font-semibold text-lg">Flows / フロー一覧</h2>
                         <div class="flex items-center gap-2 text-sm">
-                            <label>limit <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1" v-model.number="filters.limit" /></label>
-                            <label>offset <input type="number" min="0" class="w-20 border rounded px-2 py-1" v-model.number="filters.offset" /></label>
+                            <label>limit <input type="number" min="1" max="500" class="w-20 border rounded px-2 py-1 bg-white" v-model.number="filters.limit" /></label>
+                            <label>offset <input type="number" min="0" class="w-20 border rounded px-2 py-1 bg-white" v-model.number="filters.offset" /></label>
                             <label class="flex items-center gap-1">
                                 sort
                                 <select class="border rounded px-2 py-1" v-model="filters.sort_by">
@@ -182,6 +204,29 @@
                             <button class="px-3 py-1 bg-slate-900 text-white rounded" @click="refreshFlows">Refresh</button>
                         </div>
                     </div>
+                    <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                        <div class="flex items-center gap-2">
+                            <span>Page / ページ</span>
+                            <input type="number" min="1" class="w-20 border rounded px-2 py-1 bg-white" v-model="pageInput" />
+                            <button class="px-3 py-1 rounded text-white bg-slate-900 hover:bg-slate-800 transition" @click="applyPageInput">Go / 移動</button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button class="px-3 py-1 rounded transition"
+                                :class="canGoPrevious ? 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-900' : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'"
+                                @click="prevPage"
+                                :disabled="!canGoPrevious">
+                                Previous / 前へ
+                            </button>
+                            <button class="px-3 py-1 rounded transition"
+                                :class="canGoNext ? 'bg-slate-900 text-white hover:bg-slate-800 border border-slate-900' : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'"
+                                @click="nextPage"
+                                :disabled="!canGoNext">
+                                Next / 次へ
+                            </button>
+                        </div>
+                        <span>Current page: {{ currentPageNumber }}</span>
+                        <span>Showing {{ filters.offset + 1 }} - {{ filters.offset + flows.length }}</span>
+                    </div>
                     <div class="overflow-auto">
                         <table class="w-full text-sm border border-slate-200">
                             <thead class="bg-slate-100 text-slate-600">
@@ -199,7 +244,10 @@
                             </thead>
                             <tbody>
                                 <tr v-for="flow in flows" :key="flow.flow_id" class="border-t hover:bg-slate-50">
-                                    <td class="px-3 py-2 font-semibold">{{ flow.display_name || '-' }}</td>
+                                    <td class="px-3 py-2">
+                                        <div class="font-semibold">{{ flow.display_name || '-' }}</div>
+                                        <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
+                                    </td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
                                     <td class="px-3 py-2 text-xs">{{ flow.flow_status }}/{{ flow.availability }}</td>
                                     <td class="px-3 py-2 text-xs font-mono">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
@@ -259,12 +307,27 @@
                             </button>
                         </div>
                         <div class="grid gap-3" v-show="!advancedCollapsed">
+                            <div class="flex flex-col md:flex-row md:items-end gap-3 text-sm text-slate-600">
+                                <label class="flex flex-col gap-1 text-slate-600 w-full md:w-48 lg:w-40">
+                                    Limit
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="200"
+                                        class="border rounded px-3 py-2"
+                                        v-model.number="advancedSearch.limit"
+                                    />
+                                </label>
+                            </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-500">
                                 <label>Display Name
                                     <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.display_name" placeholder="ex. Studio" />
                                 </label>
                                 <label>Flow ID
                                     <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.flow_id" placeholder="UUID" />
+                                </label>
+                                <label>NMOS Node ID
+                                    <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.nmos_node_id" placeholder="UUID" />
                                 </label>
                                 <label>Source Address A
                                     <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.source_addr_a" />
@@ -283,6 +346,22 @@
                                 </label>
                                 <label>Label / Alias
                                     <input class="w-full border rounded px-3 py-2" v-model="advancedSearch.alias1" placeholder="Alias contains" />
+                                </label>
+                                <label>Status
+                                    <select class="w-full border rounded px-3 py-2" v-model="advancedSearch.flow_status">
+                                        <option value="">Any / 指定なし</option>
+                                        <option v-for="status in flowStatusOptions" :key="status" :value="status">
+                                            {{ status }}
+                                        </option>
+                                    </select>
+                                </label>
+                                <label>Availability
+                                    <select class="w-full border rounded px-3 py-2" v-model="advancedSearch.availability">
+                                        <option value="">Any / 指定なし</option>
+                                        <option v-for="state in availabilityOptions" :key="state" :value="state">
+                                            {{ state }}
+                                        </option>
+                                    </select>
                                 </label>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-500">
@@ -349,10 +428,6 @@
                                             <input type="checkbox" v-model="advancedSearch.include_unused" />
                                             Include unused / 論理削除を含む
                                         </label>
-                                        <label class="text-xs text-slate-600 flex items-center gap-2">
-                                            Limit
-                                            <input type="number" min="1" max="200" class="border rounded px-2 py-1 w-24" v-model.number="advancedSearch.limit" />
-                                        </label>
                                     </div>
                                 </div>
                             </div>
@@ -387,7 +462,10 @@
                             </thead>
                             <tbody>
                                 <tr v-for="flow in searchResults" :key="flow.flow_id" class="border-t hover:bg-slate-50">
-                                    <td class="px-3 py-2 font-semibold">{{ flow.display_name || '-' }}</td>
+                                    <td class="px-3 py-2">
+                                        <div class="font-semibold">{{ flow.display_name || '-' }}</div>
+                                        <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
+                                    </td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
                                     <td class="px-3 py-2 text-xs">{{ flow.flow_status }} / {{ flow.availability }}</td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
@@ -470,6 +548,127 @@
                         </div>
                     </div>
                     <p class="text-xs text-slate-500">Designed for future NMOS / RDS auto-fill wizards.</p>
+                </section>
+            </template>
+
+            <template v-else-if="currentView==='wizard'">
+                <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="font-semibold text-lg">NMOS Import Wizard</h2>
+                            <p class="text-xs text-slate-500">Fetch flows from an NMOS IS-04 Node endpoint.</p>
+                        </div>
+                        <span class="text-xs text-slate-400">
+                            {{ wizard.node ? 'Node: ' + (wizard.node.label || wizard.node.id || '-') : '' }}
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <label class="text-slate-600">
+                            IS-04 Base URL (up to /x-nmos/)
+                            <div class="flex gap-2">
+                                <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is04BaseUrl" placeholder="http://example:8080/x-nmos/" />
+                                <button type="button" class="px-2 py-1 mt-1 text-xs border rounded" @click="copyIs04ToIs05">Copy →</button>
+                            </div>
+                        </label>
+                        <label class="text-slate-600">
+                            IS-05 Base URL (up to /x-nmos/)
+                            <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is05BaseUrl" placeholder="http://example:8080/x-nmos/" />
+                        </label>
+                        <label class="text-slate-600">
+                            IS-04 Version
+                            <select class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is04Version">
+                                <option v-for="version in wizard.is04Versions" :key="version" :value="version">
+                                    {{ version }}
+                                </option>
+                            </select>
+                        </label>
+                        <label class="text-slate-600">
+                            IS-05 Version
+                            <select class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is05Version">
+                                <option v-for="version in wizard.is05Versions" :key="version" :value="version">
+                                    {{ version }}
+                                </option>
+                            </select>
+                        </label>
+                        <div class="flex items-end md:col-span-2">
+                            <button class="px-4 py-2 bg-slate-900 text-white rounded w-full" @click="fetchNmosFlows" :disabled="wizard.loading">
+                                {{ wizard.loading ? 'Loading...' : 'Fetch Flows' }}
+                            </button>
+                        </div>
+                    </div>
+                    <p v-if="wizard.error" class="text-sm text-red-600">{{ wizard.error }}</p>
+                    <div v-if="wizard.node" class="text-xs text-slate-500 bg-slate-100 rounded p-3">
+                        <p>Node ID: <span class="font-mono">{{ wizard.node.id }}</span></p>
+                        <p v-if="wizard.node.description">{{ wizard.node.description }}</p>
+                    </div>
+                </section>
+                <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-semibold text-lg">Discovered Flows</h3>
+                            <p class="text-xs text-slate-500">Select flows to import into MMAM.</p>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs text-slate-600">
+                            <span>Selected: {{ wizardSelectedCount }}</span>
+                            <button
+                                class="px-3 py-1 bg-emerald-600 text-white rounded"
+                                :disabled="wizardSelectedCount === 0 || wizard.importing"
+                                @click="importSelectedFlows"
+                            >
+                                {{ wizard.importing ? 'Importing...' : 'Import Selected' }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-auto">
+                        <table class="w-full text-sm border border-slate-200">
+                            <thead class="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th class="px-3 py-2 text-center">
+                                        <label class="inline-flex items-center justify-center">
+                                            <input
+                                                type="checkbox"
+                                                :checked="wizardAllSelected"
+                                                :indeterminate="wizardIndeterminate"
+                                                @change="toggleWizardSelectAll($event.target.checked)"
+                                            />
+                                            <span class="sr-only">Select all</span>
+                                        </label>
+                                    </th>
+                                    <th class="px-3 py-2 text-left">Label</th>
+                                    <th class="px-3 py-2 text-left">Flow ID</th>
+                                    <th class="px-3 py-2 text-left">Sender ID</th>
+                                    <th class="px-3 py-2 text-left">Device ID</th>
+                                    <th class="px-3 py-2 text-left">Format</th>
+                                    <th class="px-3 py-2 text-left">Transport</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="flow in wizard.flows" :key="flow.nmos_flow_id" class="border-t hover:bg-slate-50">
+                                    <td class="px-3 py-2 text-center">
+                                        <input
+                                            type="checkbox"
+                                            :checked="isWizardFlowSelected(flow.nmos_flow_id)"
+                                            @change="toggleWizardSelection(flow.nmos_flow_id, $event.target.checked)"
+                                        />
+                                    </td>
+                                    <td class="px-3 py-2">
+                                        <p class="font-semibold">{{ flow.label }}</p>
+                                        <p class="text-xs text-slate-500">{{ flow.description }}</p>
+                                    </td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.nmos_flow_id }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.nmos_sender_id || '-' }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.nmos_device_id || '-' }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.format || '-' }}</td>
+                                    <td class="px-3 py-2 text-xs">{{ flow.sender_transport || '-' }}</td>
+                                </tr>
+                                <tr v-if="wizard.flows.length === 0">
+                                    <td colspan="7" class="text-center py-4 text-slate-500">
+                                        {{ wizard.loading ? 'Fetching flows...' : 'No flows loaded yet.' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
             </template>
 
@@ -573,6 +772,29 @@
                                 </button>
                                 <button class="px-3 py-1 border rounded text-sm" v-else disabled>Read only</button>
                             </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white rounded shadow-lg p-4 space-y-3 border border-red-100">
+                        <h2 class="font-semibold text-lg text-red-600">Hard Delete Flow</h2>
+                        <p class="text-xs text-red-500">
+                            Completely deletes the record with the specified flow_id from the database. Calls the
+                            /api/flows/&lt;flow_id&gt;/hard endpoint. Cannot be restored.
+                        </p>
+                        <div class="flex flex-col md:flex-row gap-3">
+                            <input
+                                type="text"
+                                class="flex-1 border rounded px-3 py-2 text-sm font-mono"
+                                placeholder="UUID flow_id"
+                                v-model="hardDeleteFlowId"
+                            />
+                            <button
+                                class="px-4 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-50"
+                                :disabled="!hardDeleteFlowId"
+                                @click="hardDeleteFlow"
+                            >
+                                Permanently Delete
+                            </button>
                         </div>
                     </section>
                 </div>
