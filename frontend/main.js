@@ -257,6 +257,8 @@ createApp({
       lockToggleAllowed: false,
       lockToggleLoading: false,
       notification: null,
+      importFile: null,
+      importingFlows: false,
       newUser: {
         username: "",
         password: "",
@@ -1031,6 +1033,76 @@ createApp({
       } catch (err) {
         this.log(err.message);
         this.notify(err.message, "error");
+      }
+    },
+    handleImportFile(event) {
+      const file = event.target.files && event.target.files[0];
+      this.importFile = file || null;
+    },
+    async exportFlows() {
+      try {
+        const headers = {};
+        if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+        const resp = await fetch(`${this.baseUrl}/api/flows/export`, {
+          headers
+        });
+        if (!resp.ok) throw new Error(`Failed to export flows: ${resp.status}`);
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0];
+        a.href = url;
+        a.download = `mmam-flows-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        this.notify("Flows exported");
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      }
+    },
+    async importFlows() {
+      if (!this.importFile) {
+        this.notify("Select a JSON file first", "error");
+        return;
+      }
+      this.importingFlows = true;
+      try {
+        const text = await this.importFile.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid JSON");
+        }
+        if (!Array.isArray(data)) {
+          throw new Error("Import file must be a JSON array");
+        }
+        const resp = await fetch(`${this.baseUrl}/api/flows/import`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify(data)
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(`Failed to import flows: ${resp.status} ${detail}`);
+        }
+        const result = await resp.json();
+        this.notify(
+          `Import completed (new: ${result.inserted}, updated: ${result.updated}, skipped: ${result.skipped_locked})`
+        );
+        this.importFile = null;
+        if (this.$refs.flowImportInput) {
+          this.$refs.flowImportInput.value = "";
+        }
+        await this.refreshFlows();
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.importingFlows = false;
       }
     },
     async hardDeleteFlow() {

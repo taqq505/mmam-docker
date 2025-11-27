@@ -908,6 +908,42 @@
                             </button>
                         </div>
                     </section>
+
+                    <section class="bg-white rounded shadow-lg p-4 space-y-3">
+                        <h2 class="font-semibold text-lg">Flow Data Import / Export</h2>
+                        <div class="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                            <button
+                                class="px-4 py-2 bg-slate-900 text-white rounded text-sm disabled:opacity-50"
+                                @click="exportFlows"
+                                :disabled="!token"
+                            >
+                                Download JSON
+                            </button>
+                            <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                                <span class="px-3 py-2 border rounded bg-white">Choose JSON</span>
+                                <input
+                                    type="file"
+                                    accept="application/json"
+                                    class="hidden"
+                                    @change="handleImportFile"
+                                    ref="flowImportInput"
+                                />
+                                <span class="text-xs text-slate-500">
+                                    {{ importFile ? importFile.name : 'No file selected' }}
+                                </span>
+                            </label>
+                            <button
+                                class="px-4 py-2 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
+                                :disabled="!importFile || importingFlows"
+                                @click="importFlows"
+                            >
+                                {{ importingFlows ? 'Uploading...' : 'Import JSON' }}
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-500">
+                            Admin only. Locked flows are skipped during import.
+                        </p>
+                    </section>
                 </div>
             </template>
 

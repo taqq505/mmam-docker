@@ -1,10 +1,14 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from app.db import get_db_connection
 from app import nmos_client, settings_store
 from app.auth import require_roles, decode_token
 import uuid
 from datetime import datetime
+from typing import List
 
 # --------------------------------------------------------
 # Define router instance
@@ -57,6 +61,38 @@ KEYWORD_SEARCH_FIELDS = [
 ]
 
 LOCK_ROLE_SETTING_KEY = "flow_lock_role"
+
+FLOW_DB_COLUMNS = [
+    "flow_id", "display_name",
+    "source_addr_a", "source_port_a", "multicast_addr_a", "group_port_a",
+    "source_addr_b", "source_port_b", "multicast_addr_b", "group_port_b",
+    "transport_protocol",
+    "nmos_node_id", "nmos_node_label", "nmos_node_description",
+    "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
+    "nmos_is04_host", "nmos_is04_port", "nmos_is04_base_url",
+    "nmos_is05_host", "nmos_is05_port", "nmos_is05_base_url",
+    "nmos_is04_version", "nmos_is05_version",
+    "sdp_url", "sdp_cache",
+    "nmos_label", "nmos_description", "management_url",
+    "media_type", "st2110_format", "redundancy_group",
+    "alias1", "alias2", "alias3", "alias4", "alias5", "alias6", "alias7", "alias8",
+    "flow_status", "availability", "last_seen",
+    "data_source", "rds_address", "rds_api_url",
+    "user_field1", "user_field2", "user_field3", "user_field4",
+    "user_field5", "user_field6", "user_field7", "user_field8",
+    "note", "locked"
+]
+
+FLOW_INSERT_COLUMNS_SQL = ", ".join(FLOW_DB_COLUMNS)
+FLOW_INSERT_PLACEHOLDERS_SQL = ", ".join(["%s"] * len(FLOW_DB_COLUMNS))
+FLOW_UPDATE_ASSIGNMENTS = ", ".join([f"{col} = EXCLUDED.{col}" for col in FLOW_DB_COLUMNS if col != "flow_id"])
+FLOW_UPSERT_SQL = f"""
+    INSERT INTO flows ({FLOW_INSERT_COLUMNS_SQL})
+    VALUES ({FLOW_INSERT_PLACEHOLDERS_SQL})
+    ON CONFLICT (flow_id) DO UPDATE SET
+        {FLOW_UPDATE_ASSIGNMENTS},
+        updated_at = NOW();
+"""
 
 
 def _parse_datetime(value: str, label: str) -> datetime:
@@ -191,6 +227,35 @@ class FlowUpdate(BaseModel):
     locked: bool | None = None
 
 
+def _build_flow_values(flow_id: str, flow: Flow):
+    return [
+        flow_id, flow.display_name,
+        flow.source_addr_a, flow.source_port_a, flow.multicast_addr_a, flow.group_port_a,
+        flow.source_addr_b, flow.source_port_b, flow.multicast_addr_b, flow.group_port_b,
+        flow.transport_protocol,
+        flow.nmos_node_id, flow.nmos_node_label, flow.nmos_node_description,
+        flow.nmos_flow_id, flow.nmos_sender_id, flow.nmos_device_id,
+        flow.nmos_is04_host, flow.nmos_is04_port, flow.nmos_is04_base_url,
+        flow.nmos_is05_host, flow.nmos_is05_port, flow.nmos_is05_base_url,
+        flow.nmos_is04_version, flow.nmos_is05_version,
+        flow.sdp_url, flow.sdp_cache,
+        flow.nmos_label, flow.nmos_description, flow.management_url,
+        flow.media_type, flow.st2110_format, flow.redundancy_group,
+        flow.alias1, flow.alias2, flow.alias3, flow.alias4,
+        flow.alias5, flow.alias6, flow.alias7, flow.alias8,
+        flow.flow_status, flow.availability, flow.last_seen,
+        flow.data_source, flow.rds_address, flow.rds_api_url,
+        flow.user_field1, flow.user_field2, flow.user_field3, flow.user_field4,
+        flow.user_field5, flow.user_field6, flow.user_field7, flow.user_field8,
+        flow.note, bool(flow.locked)
+    ]
+
+
+def _upsert_flow(cur, flow_id: str, flow: Flow):
+    values = _build_flow_values(flow_id, flow)
+    cur.execute(FLOW_UPSERT_SQL, values)
+
+
 NMOS_SYNC_FIELDS = [
     "display_name",
     "nmos_label", "nmos_description",
@@ -220,6 +285,17 @@ def _fetch_flow_record(flow_id: str) -> dict:
     cur.close()
     conn.close()
     return dict(zip(colnames, row))
+
+
+def _fetch_all_flows() -> list[dict]:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flows ORDER BY updated_at DESC;")
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    cur.close()
+    conn.close()
+    return [dict(zip(colnames, row)) for row in rows]
 
 
 def _resolve_nmos_bases(flow: dict):
@@ -482,6 +558,56 @@ def flow_summary(
     return {"total": total, "active": active}
 
 
+@router.get("/flows/export")
+def export_flows(user=Depends(require_roles("admin"))):
+    flows = _fetch_all_flows()
+    filename = f"mmam_flows_{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    pretty = json.dumps(jsonable_encoder(flows), ensure_ascii=False, indent=2)
+    return Response(content=pretty, headers=headers, media_type="application/json")
+
+
+@router.post("/flows/import")
+def import_flows(payload: List[Flow], user=Depends(require_roles("admin"))):
+    if not payload:
+        return {"result": "ok", "inserted": 0, "updated": 0, "skipped_locked": 0}
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    inserted = 0
+    updated = 0
+    skipped_locked = 0
+    try:
+        for flow in payload:
+            flow_id = flow.flow_id or flow.nmos_flow_id or str(uuid.uuid4())
+            cur.execute("SELECT locked FROM flows WHERE flow_id=%s;", (flow_id,))
+            existing_row = cur.fetchone()
+            if existing_row:
+                if existing_row[0]:
+                    skipped_locked += 1
+                    continue
+                is_update = True
+            else:
+                is_update = False
+
+            _upsert_flow(cur, flow_id, flow)
+            if is_update:
+                updated += 1
+            else:
+                inserted += 1
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    return {
+        "result": "ok",
+        "inserted": inserted,
+        "updated": updated,
+        "skipped_locked": skipped_locked
+    }
+
+
 @router.get("/flows/{flow_id}")
 def get_flow_detail(
     flow_id: str,
@@ -646,60 +772,7 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
         conn.close()
         raise HTTPException(status_code=409, detail="Flow ID already exists")
     try:
-        columns = [
-            "flow_id", "display_name",
-            "source_addr_a", "source_port_a", "multicast_addr_a", "group_port_a",
-            "source_addr_b", "source_port_b", "multicast_addr_b", "group_port_b",
-            "transport_protocol",
-            "nmos_node_id", "nmos_node_label", "nmos_node_description",
-            "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
-            "nmos_is04_host", "nmos_is04_port", "nmos_is04_base_url",
-            "nmos_is05_host", "nmos_is05_port", "nmos_is05_base_url",
-            "nmos_is04_version", "nmos_is05_version",
-            "sdp_url", "sdp_cache",
-            "nmos_label", "nmos_description", "management_url",
-            "media_type", "st2110_format", "redundancy_group",
-            "alias1", "alias2", "alias3", "alias4", "alias5", "alias6", "alias7", "alias8",
-            "flow_status", "availability", "last_seen",
-            "data_source", "rds_address", "rds_api_url",
-            "user_field1", "user_field2", "user_field3", "user_field4",
-            "user_field5", "user_field6", "user_field7", "user_field8",
-            "note", "locked"
-        ]
-        values = [
-            flow_id, flow.display_name,
-            flow.source_addr_a, flow.source_port_a, flow.multicast_addr_a, flow.group_port_a,
-            flow.source_addr_b, flow.source_port_b, flow.multicast_addr_b, flow.group_port_b,
-            flow.transport_protocol,
-            flow.nmos_node_id, flow.nmos_node_label, flow.nmos_node_description,
-            flow.nmos_flow_id, flow.nmos_sender_id, flow.nmos_device_id,
-            flow.nmos_is04_host, flow.nmos_is04_port, flow.nmos_is04_base_url,
-            flow.nmos_is05_host, flow.nmos_is05_port, flow.nmos_is05_base_url,
-            flow.nmos_is04_version, flow.nmos_is05_version,
-            flow.sdp_url, flow.sdp_cache,
-            flow.nmos_label, flow.nmos_description, flow.management_url,
-            flow.media_type, flow.st2110_format, flow.redundancy_group,
-            flow.alias1, flow.alias2, flow.alias3, flow.alias4,
-            flow.alias5, flow.alias6, flow.alias7, flow.alias8,
-            flow.flow_status, flow.availability, flow.last_seen,
-            flow.data_source, flow.rds_address, flow.rds_api_url,
-            flow.user_field1, flow.user_field2, flow.user_field3, flow.user_field4,
-            flow.user_field5, flow.user_field6, flow.user_field7, flow.user_field8,
-            flow.note, bool(flow.locked) if flow.locked is not None else False
-        ]
-        columns_sql = ", ".join(columns)
-        placeholders = ", ".join(["%s"] * len(columns))
-        update_sql = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns if col != "flow_id"])
-        cur.execute(
-            f"""
-            INSERT INTO flows ({columns_sql})
-            VALUES ({placeholders})
-            ON CONFLICT (flow_id) DO UPDATE SET
-                {update_sql},
-                updated_at = NOW();
-            """,
-            values
-        )
+        _upsert_flow(cur, flow_id, flow)
         conn.commit()
     finally:
         cur.close()
