@@ -20,7 +20,7 @@
     </script>
 </head>
 <body class="bg-slate-100 text-slate-900 font-sans">
-    <div id="app" class="min-h-screen flex bg-slate-100">
+    <div id="app" class="min-h-screen flex bg-slate-100 relative">
         <aside class="w-64 bg-slate-900 text-white flex flex-col">
             <div class="px-6 py-5 border-b border-white/10">
                 <h1 class="text-xl font-semibold">MMAM</h1>
@@ -54,6 +54,19 @@
                 <button class="mt-2 px-3 py-1 bg-white/20 rounded text-sm w-full" @click="logout" v-if="token">Log out</button>
             </div>
         </aside>
+        <transition name="toast-fade">
+            <div
+                v-if="notification"
+                class="fixed inset-0 flex items-start justify-center pointer-events-none"
+            >
+                <div
+                    class="mt-16 px-4 py-2 rounded text-sm text-white shadow-lg"
+                    :class="notification.type === 'error' ? 'bg-black/70' : 'bg-slate-800/70'"
+                >
+                    {{ notification.message }}
+                </div>
+            </div>
+        </transition>
         <div class="flex-1 flex flex-col">
             <header class="bg-white shadow px-6 py-4 flex items-center justify-between gap-6">
                 <div>
@@ -156,7 +169,10 @@
                     <div class="space-y-2 max-h-[420px] overflow-auto">
                         <article v-for="flow in flows" :key="flow.flow_id" class="border rounded p-3 flex justify-between items-start">
                             <div>
-                                <h3 class="font-semibold">{{ flow.display_name || flow.flow_id }}</h3>
+                                <h3 class="font-semibold flex items-center gap-1">
+                                    <span>{{ flow.display_name || flow.flow_id }}</span>
+                                    <span v-if="flow.locked" class="text-slate-500 text-base leading-none">⚿</span>
+                                </h3>
                                 <p v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</p>
                                 <p class="text-xs text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
                                 <p class="text-xs text-slate-400">Updated: {{ flow.updated_at }}</p>
@@ -244,7 +260,10 @@
                             <tbody>
                                 <tr v-for="flow in flows" :key="flow.flow_id" class="border-t hover:bg-slate-50">
                                     <td class="px-3 py-2">
-                                        <div class="font-semibold">{{ flow.display_name || '-' }}</div>
+                                        <div class="font-semibold flex items-center gap-1">
+                                            <span>{{ flow.display_name || '-' }}</span>
+                                            <span v-if="flow.locked" class="text-slate-500 text-base leading-none">⚿</span>
+                                        </div>
                                         <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
                                     </td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
@@ -462,7 +481,10 @@
                             <tbody>
                                 <tr v-for="flow in searchResults" :key="flow.flow_id" class="border-t hover:bg-slate-50">
                                     <td class="px-3 py-2">
-                                        <div class="font-semibold">{{ flow.display_name || '-' }}</div>
+                                        <div class="font-semibold flex items-center gap-1">
+                                            <span>{{ flow.display_name || '-' }}</span>
+                                            <span v-if="flow.locked" class="text-slate-500 text-base leading-none">⚿</span>
+                                        </div>
                                         <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
                                     </td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
@@ -495,38 +517,89 @@
                             </h2>
                             <p v-if="editingFlowId" class="text-xs text-slate-500">Editing: {{ editingFlowId }}</p>
                         </div>
-                        <div class="flex gap-3">
-                            <button class="px-3 py-2 border rounded text-sm" @click="resetFlowForm">Reset</button>
-                            <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="submitFlow">
-                                {{ editingFlowId ? 'Update' : 'Create' }}
-                            </button>
-                            <button
-                                v-if="editingFlowId"
-                                class="px-4 py-2 bg-red-500 text-white rounded text-sm"
-                                @click="deleteFlow(editingFlowId)"
-                            >
-                                Delete Flow
-                            </button>
+                        <div class="flex flex-col gap-2 items-end">
+                            <div class="flex items-center gap-2" v-if="editingFlowId">
+                                <button
+                                    class="px-3 py-1 text-xs rounded border flex items-center gap-1"
+                                    :class="newFlow.locked ? 'border-red-300 text-red-600 bg-red-50' : 'border-emerald-300 text-emerald-600 bg-emerald-50'"
+                                    :disabled="!lockToggleAllowed || lockToggleLoading"
+                                    @click="toggleFlowLock"
+                                >
+                                    <span v-if="newFlow.locked" class="flex items-center gap-1">
+                                        <span class="text-slate-500 text-base leading-none">⚿</span>
+                                        <span>Locked</span>
+                                    </span>
+                                    <span v-else>Unlocked</span>
+                                </button>
+                                <span v-if="!lockToggleAllowed" class="text-[11px] text-slate-500">insufficient role</span>
+                                <button
+                                    class="px-3 py-1 border rounded text-xs"
+                                    :disabled="nmos.checking"
+                                    @click="checkNmos(editingFlowId)"
+                                >
+                                    NMOS Check
+                                </button>
+                                <button
+                                    class="px-3 py-1 text-xs rounded border"
+                                    :class="canApplyNmos(editingFlowId) ? 'border-emerald-500 text-emerald-600' : 'text-slate-400 border-slate-200 cursor-not-allowed'"
+                                    :disabled="!canApplyNmos(editingFlowId) || nmos.applying"
+                                    @click="openNmosApplyDialog(editingFlowId)"
+                                >
+                                    NMOS Sync
+                                </button>
+                                <span v-if="canApplyNmos(editingFlowId)" class="text-[11px] text-red-600">
+                                    差分: {{ nmosDiffSummary(editingFlowId) }}
+                                </span>
+                            </div>
+                            <div class="flex gap-3">
+                                <button class="px-3 py-2 border rounded text-sm" @click="resetFlowForm">Reset</button>
+                                <button
+                                    class="px-4 py-2 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
+                                    @click="submitFlow"
+                                    :disabled="editingFlowId && newFlow.locked"
+                                >
+                                    {{ editingFlowId ? 'Update' : 'Create' }}
+                                </button>
+                                <button
+                                    v-if="editingFlowId"
+                                    class="px-4 py-2 bg-red-500 text-white rounded text-sm disabled:opacity-50"
+                                    :disabled="newFlow.locked"
+                                    @click="deleteFlow(editingFlowId)"
+                                >
+                                    Delete Flow
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div class="space-y-4">
+                    <p v-if="newFlow.locked" class="text-xs text-red-600">
+                        このフローはロック中です。フィールド編集や削除はできませんが、NMOS Check は実行できます（NMOS Sync は解除後に可能）。
+                    </p>
+                    <p v-if="nmos.error && nmos.targetFlowId === editingFlowId" class="text-xs text-red-600">{{ nmos.error }}</p>
+                    <fieldset :disabled="newFlow.locked" class="space-y-4 border-0 p-0 m-0">
                         <div v-for="group in fieldGroups" :key="group.title" class="border rounded p-4">
                             <h3 class="font-semibold text-base mb-3">{{ group.title }}</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <label v-for="field in group.fields" :key="field.key" class="text-xs text-slate-500 space-y-1">
                                     {{ field.label }}
                                     <template v-if="field.type === 'textarea'">
-                                        <textarea class="w-full border rounded px-3 py-2" rows="field.rows || 3" v-model="newFlow[field.key]"></textarea>
+                                        <textarea
+                                            :class="['w-full border rounded px-3 py-2', isNmosDiff(field.key, editingFlowId) ? 'border-red-500 ring-1 ring-red-400' : '']"
+                                            rows="field.rows || 3"
+                                            v-model="newFlow[field.key]"
+                                        ></textarea>
                                     </template>
                                     <template v-else-if="field.type === 'select'">
-                                        <select class="w-full border rounded px-3 py-2" v-model="newFlow[field.key]">
+                                        <select
+                                            :class="['w-full border rounded px-3 py-2', isNmosDiff(field.key, editingFlowId) ? 'border-red-500 ring-1 ring-red-400' : '']"
+                                            v-model="newFlow[field.key]"
+                                        >
                                             <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
                                         </select>
                                     </template>
                                     <template v-else-if="field.key === 'flow_id'">
                                         <input
                                             type="text"
-                                            class="w-full border rounded px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                                            :class="['w-full border rounded px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500', isNmosDiff(field.key, editingFlowId) ? 'border-red-500 ring-1 ring-red-400' : '']"
                                             v-model="newFlow[field.key]"
                                             :disabled="newFlow.data_source === 'manual'"
                                             placeholder="Auto assigned / NMOS Flow ID"
@@ -537,15 +610,22 @@
                                     </template>
                                     <template v-else>
                                         <input
-                                            :type="field.type === 'number' ? 'number' : 'text'"
-                                            class="w-full border rounded px-3 py-2"
+                                            v-if="field.type === 'number'"
+                                            type="number"
+                                            :class="['w-full border rounded px-3 py-2', isNmosDiff(field.key, editingFlowId) ? 'border-red-500 ring-1 ring-red-400' : '']"
+                                            v-model.number="newFlow[field.key]"
+                                        />
+                                        <input
+                                            v-else
+                                            type="text"
+                                            :class="['w-full border rounded px-3 py-2', isNmosDiff(field.key, editingFlowId) ? 'border-red-500 ring-1 ring-red-400' : '']"
                                             v-model="newFlow[field.key]"
                                         />
                                     </template>
                                 </label>
                             </div>
                         </div>
-                    </div>
+                    </fieldset>
                     <p class="text-xs text-slate-500">Designed for future NMOS / RDS auto-fill wizards.</p>
                 </section>
             </template>
@@ -692,6 +772,9 @@
                             </select>
                         </label>
                     </div>
+                    <p class="text-[11px] text-slate-500">
+                        Username must be 3-64 chars, password 4-128 chars (per API validation).
+                    </p>
                     <button class="px-4 py-2 bg-emerald-600 text-white rounded text-sm" @click="createUser">Add User</button>
                     <div class="overflow-auto">
                         <table class="w-full text-sm border border-slate-200">
@@ -761,15 +844,44 @@
                             <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="fetchSettings">Reload</button>
                         </div>
                         <div class="space-y-2">
-                            <div v-for="(value, key) in settings" :key="key" class="border rounded p-3 flex items-center justify-between">
-                                <div>
-                                    <p class="text-sm font-semibold">{{ key }}</p>
-                                    <p class="text-xs text-slate-500">Current value: {{ value }}</p>
+                            <template v-for="(value, key) in settings" :key="key">
+                                <div
+                                    v-if="key !== 'flow_lock_role'"
+                                    class="border rounded p-3 flex items-center justify-between"
+                                >
+                                    <div>
+                                        <p class="text-sm font-semibold">{{ key }}</p>
+                                        <p class="text-xs text-slate-500">Current value: {{ value }}</p>
+                                    </div>
+                                    <button class="px-3 py-1 border rounded text-sm" @click="updateSetting(key, value === true ? false : true)" v-if="typeof value === 'boolean'">
+                                        {{ value ? 'Disable' : 'Enable' }}
+                                    </button>
+                                    <button class="px-3 py-1 border rounded text-sm" v-else disabled>Read only</button>
                                 </div>
-                                <button class="px-3 py-1 border rounded text-sm" @click="updateSetting(key, value === true ? false : true)" v-if="typeof value === 'boolean'">
-                                    {{ value ? 'Disable' : 'Enable' }}
-                                </button>
-                                <button class="px-3 py-1 border rounded text-sm" v-else disabled>Read only</button>
+                            </template>
+                            <div class="border rounded p-3 space-y-2">
+                                <div>
+                                    <p class="text-sm font-semibold">Flow Lock Role</p>
+                                    <p class="text-xs text-slate-500">Select who can toggle flow locks.</p>
+                                </div>
+                                <label class="flex items-center gap-2 text-sm text-slate-600">
+                                    <input
+                                        type="radio"
+                                        value="admin"
+                                        v-model="settings.flow_lock_role"
+                                        @change="updateSetting('flow_lock_role', settings.flow_lock_role)"
+                                    />
+                                    Admin only
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-600">
+                                    <input
+                                        type="radio"
+                                        value="editor"
+                                        v-model="settings.flow_lock_role"
+                                        @change="updateSetting('flow_lock_role', settings.flow_lock_role)"
+                                    />
+                                    Editor or higher
+                                </label>
                             </div>
                         </div>
                     </section>
@@ -805,22 +917,98 @@
                 </section>
             </template>
 
-            <div v-if="detailFlow" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div
+                v-if="nmos.applyVisible && nmos.result"
+                class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+            >
+                <div class="bg-white rounded shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
+                    <div class="flex justify-between items-center px-6 py-4 border-b">
+                        <h3 class="text-lg font-semibold">NMOS反映</h3>
+                        <button class="text-sm text-slate-500" @click="closeNmosApplyDialog">Close</button>
+                    </div>
+                    <div class="p-6 space-y-3 text-sm">
+                        <p>Flow: <span class="font-mono">{{ nmos.result.flow_id }}</span></p>
+                        <p class="text-xs text-slate-500">Select the fields to overwrite with the latest NMOS values.</p>
+                        <div class="max-h-64 overflow-auto border rounded divide-y">
+                            <label
+                                v-for="field in (nmos.result.comparable_fields || [])"
+                                :key="field"
+                                class="flex items-start gap-3 px-4 py-2 text-xs text-slate-600"
+                            >
+                                <input type="checkbox" class="mt-1" :value="field" v-model="nmos.applySelections" />
+                                <div class="flex-1">
+                                    <p class="font-semibold">{{ field }}</p>
+                                    <p class="text-[11px] text-slate-500">
+                                        Current: {{ nmosDiffValue(field)?.current ?? '—' }}
+                                    </p>
+                                    <p class="text-[11px] text-emerald-600">
+                                        NMOS: {{ nmosDiffValue(field)?.nmos ?? nmos.result.snapshot[field] ?? '—' }}
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="flex justify-between items-center text-xs text-slate-500">
+                            <span>Selected: {{ nmos.applySelections.length }}</span>
+                            <div class="flex gap-2">
+                                <button class="px-3 py-1 border rounded" @click="closeNmosApplyDialog">Cancel</button>
+                                <button
+                                    class="px-4 py-1 rounded bg-emerald-600 text-white disabled:opacity-50"
+                                    :disabled="nmos.applying || nmos.applySelections.length === 0"
+                                    @click="applyNmos(nmos.result.flow_id)"
+                                >
+                                    {{ nmos.applying ? 'Applying...' : 'Apply & Update' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="detailFlow" class="fixed inset-0 bg-black/60 flex items-center justify-center z-40">
                 <div class="bg-white rounded shadow-lg w-full max-w-4xl max-h-[80vh] overflow-auto">
                     <div class="flex justify-between items-center px-6 py-4 border-b">
                         <div>
-                            <h3 class="text-lg font-semibold" v-text="detailFlow ? (detailFlow.display_name || detailFlow.flow_id) : ''"></h3>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-lg font-semibold" v-text="detailFlow ? (detailFlow.display_name || detailFlow.flow_id) : ''"></h3>
+                                <span v-if="detailFlow?.locked" class="text-slate-500 text-base leading-none">⚿</span>
+                            </div>
                             <p class="text-xs text-slate-500">
                                 flow_id:
                                 <span class="font-mono" v-text="detailFlow ? detailFlow.flow_id : ''"></span>
                             </p>
                         </div>
-                        <button class="text-sm text-slate-500" @click="closeDetail">Close</button>
+                        <div class="flex items-center gap-2">
+                            <button
+                                class="px-3 py-1 text-xs border rounded"
+                                :disabled="nmos.checking"
+                                @click="checkNmos(detailFlow.flow_id)"
+                            >
+                                NMOS Check
+                            </button>
+                            <button class="px-3 py-1 text-xs border rounded bg-slate-100 text-slate-400 cursor-not-allowed" disabled>
+                                NMOS Sync
+                            </button>
+                            <button class="text-sm text-slate-500" @click="closeDetail">Close</button>
+                        </div>
                     </div>
+                    <p v-if="nmos.error && nmos.targetFlowId === detailFlow?.flow_id" class="px-6 pt-3 text-xs text-red-600">
+                        {{ nmos.error }}
+                    </p>
                     <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div v-for="entry in detailEntries" :key="entry[0]" class="border rounded p-3 flex flex-col gap-1">
+                        <div
+                            v-for="entry in detailEntries"
+                            :key="entry[0]"
+                            class="border rounded p-3 flex flex-col gap-1"
+                            :class="isNmosDiff(entry[0], detailFlow.flow_id) ? 'border-red-400 bg-red-50' : ''"
+                        >
                             <p class="text-xs text-slate-500 uppercase tracking-wide" v-text="entry[0]"></p>
                             <p class="font-mono text-xs break-words whitespace-pre-wrap" v-text="entry[1]"></p>
+                            <p
+                                v-if="isNmosDiff(entry[0], detailFlow.flow_id)"
+                                class="text-[11px] text-red-600 font-mono break-words"
+                            >
+                                NMOS: {{ nmosDiffValue(entry[0])?.nmos ?? '' }}
+                            </p>
                         </div>
                         <p v-if="detailEntries.length === 0" class="text-center text-xs text-slate-500">No data.</p>
                     </div>
@@ -831,5 +1019,16 @@
     </div>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="./main.js"></script>
+    <style>
+        .toast-fade-enter-active,
+        .toast-fade-leave-active {
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        .toast-fade-enter-from,
+        .toast-fade-leave-to {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+    </style>
 </body>
 </html>

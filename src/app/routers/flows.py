@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from app.db import get_db_connection
-from app.auth import require_roles
+from app import nmos_client, settings_store
+from app.auth import require_roles, decode_token
 import uuid
 from datetime import datetime
 
@@ -28,7 +29,9 @@ TEXT_FILTER_FIELDS = {
     "rds_address", "rds_api_url",
     "user_field1", "user_field2", "user_field3", "user_field4",
     "user_field5", "user_field6", "user_field7", "user_field8",
-    "note"
+    "note",
+    "nmos_is04_version", "nmos_is05_version",
+    "nmos_is04_base_url", "nmos_is05_base_url"
 }
 
 INT_FILTER_FIELDS = {
@@ -52,6 +55,8 @@ KEYWORD_SEARCH_FIELDS = [
     "management_url", "note",
     "media_type", "redundancy_group"
 ]
+
+LOCK_ROLE_SETTING_KEY = "flow_lock_role"
 
 
 def _parse_datetime(value: str, label: str) -> datetime:
@@ -87,8 +92,12 @@ class Flow(BaseModel):
     nmos_device_id: str | None = None
     nmos_is04_host: str | None = None
     nmos_is04_port: int | None = None
+    nmos_is04_base_url: str | None = None
     nmos_is05_host: str | None = None
     nmos_is05_port: int | None = None
+    nmos_is05_base_url: str | None = None
+    nmos_is04_version: str | None = None
+    nmos_is05_version: str | None = None
     sdp_url: str | None = None
     sdp_cache: str | None = None
     nmos_label: str | None = None
@@ -120,6 +129,7 @@ class Flow(BaseModel):
     user_field7: str | None = None
     user_field8: str | None = None
     note: str | None = None
+    locked: bool | None = False
 
 
 class FlowUpdate(BaseModel):
@@ -141,8 +151,12 @@ class FlowUpdate(BaseModel):
     nmos_device_id: str | None = None
     nmos_is04_host: str | None = None
     nmos_is04_port: int | None = None
+    nmos_is04_base_url: str | None = None
     nmos_is05_host: str | None = None
     nmos_is05_port: int | None = None
+    nmos_is05_base_url: str | None = None
+    nmos_is04_version: str | None = None
+    nmos_is05_version: str | None = None
     sdp_url: str | None = None
     sdp_cache: str | None = None
     nmos_label: str | None = None
@@ -174,6 +188,118 @@ class FlowUpdate(BaseModel):
     user_field7: str | None = None
     user_field8: str | None = None
     note: str | None = None
+    locked: bool | None = None
+
+
+NMOS_SYNC_FIELDS = [
+    "display_name",
+    "nmos_label", "nmos_description",
+    "nmos_node_label", "nmos_node_description",
+    "nmos_node_id", "nmos_device_id", "nmos_sender_id", "nmos_flow_id",
+    "nmos_is04_host", "nmos_is04_port", "nmos_is04_base_url",
+    "nmos_is05_host", "nmos_is05_port", "nmos_is05_base_url",
+    "nmos_is04_version", "nmos_is05_version",
+    "source_addr_a", "source_port_a", "multicast_addr_a", "group_port_a",
+    "source_addr_b", "source_port_b", "multicast_addr_b", "group_port_b",
+    "media_type", "st2110_format", "redundancy_group",
+    "transport_protocol",
+    "sdp_url", "sdp_cache"
+]
+
+
+def _fetch_flow_record(flow_id: str) -> dict:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flows WHERE flow_id = %s;", (flow_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Flow not found")
+    colnames = [desc[0] for desc in cur.description]
+    cur.close()
+    conn.close()
+    return dict(zip(colnames, row))
+
+
+def _resolve_nmos_bases(flow: dict):
+    raw_is04_host = flow.get("nmos_is04_host")
+    raw_is05_host = flow.get("nmos_is05_host")
+    is04_base = flow.get("nmos_is04_base_url")
+    is05_base = flow.get("nmos_is05_base_url")
+    if not is04_base:
+        if raw_is04_host and raw_is04_host.strip().lower().startswith(("http://", "https://")):
+            is04_base = nmos_client.normalize_base_url(raw_is04_host)
+        else:
+            is04_base = nmos_client.build_base_from_host_port(raw_is04_host, flow.get("nmos_is04_port"))
+    if not is05_base:
+        if raw_is05_host and raw_is05_host.strip().lower().startswith(("http://", "https://")):
+            is05_base = nmos_client.normalize_base_url(raw_is05_host)
+        else:
+            is05_base = nmos_client.build_base_from_host_port(raw_is05_host, flow.get("nmos_is05_port"))
+    nmos_flow_id = flow.get("nmos_flow_id") or flow.get("flow_id")
+    sender_id = flow.get("nmos_sender_id")
+    is04_version = flow.get("nmos_is04_version") or nmos_client.DEFAULT_IS04_VERSION
+    is05_version = flow.get("nmos_is05_version") or nmos_client.DEFAULT_IS05_VERSION
+    if not is04_base or not is05_base or not nmos_flow_id:
+        raise HTTPException(status_code=400, detail="Flow does not contain NMOS host information")
+    return is04_base, is05_base, nmos_flow_id, sender_id, is04_version, is05_version
+
+
+def _fetch_nmos_snapshot(flow: dict, timeout: int = 5):
+    is04_base, is05_base, nmos_flow_id, sender_id, is04_version, is05_version = _resolve_nmos_bases(flow)
+    return nmos_client.fetch_flow_snapshot(
+        flow_id=nmos_flow_id,
+        is04_base_url=is04_base,
+        is05_base_url=is05_base,
+        sender_id=sender_id,
+        timeout=timeout,
+        is04_version=is04_version,
+        is05_version=is05_version
+    )
+
+
+def _diff_flow_fields(current: dict, snapshot: dict):
+    differences = {}
+    for field in NMOS_SYNC_FIELDS:
+        if field not in snapshot:
+            continue
+        if current.get(field) != snapshot.get(field):
+            differences[field] = {
+                "current": current.get(field),
+                "nmos": snapshot.get(field)
+            }
+    return differences
+
+
+def _lock_allowed_roles() -> set[str]:
+    try:
+        role = settings_store.get_setting(LOCK_ROLE_SETTING_KEY)
+    except KeyError:
+        role = "admin"
+    if role == "editor":
+        return {"editor", "admin"}
+    return {"admin"}
+
+
+def _user_can_toggle_lock(user: dict | None) -> bool:
+    if not user:
+        return False
+    return user.get("role") in _lock_allowed_roles()
+
+
+def _ensure_flow_unlocked(flow: dict):
+    if flow.get("locked"):
+        raise HTTPException(status_code=423, detail="Flow is locked and cannot be modified")
+
+
+class FlowLockUpdate(BaseModel):
+    locked: bool
+
+
+class NmosApplyRequest(BaseModel):
+    fields: list[str]
+    timeout: int | None = None
 
 
 # --------------------------------------------------------
@@ -205,7 +331,7 @@ def list_flows(
     # ✅ デフォルト項目
     base_fields = [
         "flow_id", "display_name", "nmos_node_label",
-        "flow_status", "availability",
+        "flow_status", "availability", "locked",
         "created_at", "updated_at"
     ]
 
@@ -304,8 +430,9 @@ def list_flows(
     if q:
         keyword = f"%{q}%"
         clauses = []
+        uuid_fields = {"flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id", "nmos_node_id"}
         for field in KEYWORD_SEARCH_FIELDS:
-            if field in {"flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id"}:
+            if field in uuid_fields:
                 clauses.append(f"CAST({field} AS TEXT) ILIKE %s")
             else:
                 clauses.append(f"{field} ILIKE %s")
@@ -360,18 +487,98 @@ def get_flow_detail(
     flow_id: str,
     user=Depends(require_roles("viewer", "editor", "admin", allow_anonymous_setting="allow_anonymous_flows"))
 ):
+    flow = _fetch_flow_record(flow_id)
+    flow["lock_toggle_allowed"] = _user_can_toggle_lock(user)
+    return flow
+
+
+@router.get("/flows/{flow_id}/nmos/check")
+def check_flow_against_nmos(
+    flow_id: str,
+    timeout: int = 5,
+    user=Depends(require_roles("viewer", "editor", "admin", allow_anonymous_setting="allow_anonymous_flows"))
+):
+    flow = _fetch_flow_record(flow_id)
+    snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
+    differences = _diff_flow_fields(flow, snapshot)
+    return {
+        "flow_id": flow_id,
+        "nmos_flow_id": snapshot.get("nmos_flow_id"),
+        "snapshot": snapshot,
+        "differences": differences,
+        "comparable_fields": [field for field in NMOS_SYNC_FIELDS if field in snapshot]
+    }
+
+
+@router.post("/flows/{flow_id}/nmos/apply")
+def apply_nmos_updates(
+    flow_id: str,
+    payload: NmosApplyRequest,
+    user=Depends(require_roles("editor", "admin"))
+):
+    if not payload.fields:
+        raise HTTPException(status_code=400, detail="No fields selected for NMOS apply")
+    flow = _fetch_flow_record(flow_id)
+    _ensure_flow_unlocked(flow)
+    snapshot = _fetch_nmos_snapshot(flow, timeout=payload.timeout or 5)
+    updates = {}
+    for field in payload.fields:
+        if field in NMOS_SYNC_FIELDS and field in snapshot:
+            updates[field] = snapshot.get(field)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No matching fields found in NMOS data")
+
+    set_clause = ", ".join([f"{key} = %s" for key in updates])
+    values = list(updates.values())
+    values.append(flow_id)
+
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM flows WHERE flow_id = %s;", (flow_id,))
-    row = cur.fetchone()
-    if not row:
+    cur.execute(
+        f"UPDATE flows SET {set_clause}, updated_at = NOW() WHERE flow_id = %s;",
+        values
+    )
+    if cur.rowcount == 0:
         cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail="Flow not found")
-    colnames = [desc[0] for desc in cur.description]
+    conn.commit()
     cur.close()
     conn.close()
-    return dict(zip(colnames, row))
+    return {"result": "ok", "flow_id": flow_id, "updated_fields": list(updates.keys())}
+
+
+@router.post("/flows/{flow_id}/lock")
+def set_flow_lock(
+    flow_id: str,
+    payload: FlowLockUpdate,
+    user=Depends(decode_token)
+):
+    if not _user_can_toggle_lock(user):
+        raise HTTPException(status_code=403, detail="Not allowed to change lock status")
+    flow = _fetch_flow_record(flow_id)
+    new_state = bool(payload.locked)
+    if flow.get("locked") == new_state:
+        return {"result": "ok", "flow_id": flow_id, "locked": new_state}
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE flows
+        SET locked = %s, updated_at = NOW()
+        WHERE flow_id = %s;
+        """,
+        (new_state, flow_id)
+    )
+    if cur.rowcount == 0:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Flow not found")
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"result": "ok", "flow_id": flow_id, "locked": new_state}
 
 
 @router.patch("/flows/{flow_id}")
@@ -381,6 +588,21 @@ def update_flow(
     user=Depends(require_roles("editor", "admin"))
 ):
     updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    current = _fetch_flow_record(flow_id)
+    lock_change = "locked" in updates
+    if lock_change and not _user_can_toggle_lock(user):
+        raise HTTPException(status_code=403, detail="Not allowed to change lock status")
+
+    non_lock_updates = {k: v for k, v in updates.items() if k != "locked"}
+    if current.get("locked") and non_lock_updates:
+        raise HTTPException(status_code=423, detail="Flow is locked. Unlock before editing.")
+
+    if lock_change and updates["locked"] == current.get("locked"):
+        updates.pop("locked")
+        lock_change = False
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -431,7 +653,9 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
             "transport_protocol",
             "nmos_node_id", "nmos_node_label", "nmos_node_description",
             "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
-            "nmos_is04_host", "nmos_is04_port", "nmos_is05_host", "nmos_is05_port",
+            "nmos_is04_host", "nmos_is04_port", "nmos_is04_base_url",
+            "nmos_is05_host", "nmos_is05_port", "nmos_is05_base_url",
+            "nmos_is04_version", "nmos_is05_version",
             "sdp_url", "sdp_cache",
             "nmos_label", "nmos_description", "management_url",
             "media_type", "st2110_format", "redundancy_group",
@@ -440,7 +664,7 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
             "data_source", "rds_address", "rds_api_url",
             "user_field1", "user_field2", "user_field3", "user_field4",
             "user_field5", "user_field6", "user_field7", "user_field8",
-            "note"
+            "note", "locked"
         ]
         values = [
             flow_id, flow.display_name,
@@ -449,7 +673,9 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
             flow.transport_protocol,
             flow.nmos_node_id, flow.nmos_node_label, flow.nmos_node_description,
             flow.nmos_flow_id, flow.nmos_sender_id, flow.nmos_device_id,
-            flow.nmos_is04_host, flow.nmos_is04_port, flow.nmos_is05_host, flow.nmos_is05_port,
+            flow.nmos_is04_host, flow.nmos_is04_port, flow.nmos_is04_base_url,
+            flow.nmos_is05_host, flow.nmos_is05_port, flow.nmos_is05_base_url,
+            flow.nmos_is04_version, flow.nmos_is05_version,
             flow.sdp_url, flow.sdp_cache,
             flow.nmos_label, flow.nmos_description, flow.management_url,
             flow.media_type, flow.st2110_format, flow.redundancy_group,
@@ -459,7 +685,7 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
             flow.data_source, flow.rds_address, flow.rds_api_url,
             flow.user_field1, flow.user_field2, flow.user_field3, flow.user_field4,
             flow.user_field5, flow.user_field6, flow.user_field7, flow.user_field8,
-            flow.note
+            flow.note, bool(flow.locked) if flow.locked is not None else False
         ]
         columns_sql = ", ".join(columns)
         placeholders = ", ".join(["%s"] * len(columns))
@@ -489,6 +715,8 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
 # --------------------------------------------------------
 @router.delete("/flows/{flow_id}")
 def delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
+    flow = _fetch_flow_record(flow_id)
+    _ensure_flow_unlocked(flow)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -510,6 +738,8 @@ def hard_delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     Permanently remove a flow record from the database.
     フローの行を完全削除する危険操作（管理者のみ）。
     """
+    flow = _fetch_flow_record(flow_id)
+    _ensure_flow_unlocked(flow)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM flows WHERE flow_id=%s;", (flow_id,))

@@ -12,6 +12,12 @@ SETTINGS_SCHEMA: Dict[str, Dict[str, Any]] = {
         "default": False,
         "description": "Allow unauthenticated access to /api/users endpoints."
     },
+    "flow_lock_role": {
+        "type": "choice",
+        "options": ["admin", "editor"],
+        "default": "admin",
+        "description": "Minimum role required to lock/unlock flows."
+    },
 }
 
 
@@ -28,6 +34,11 @@ def _normalize_input(key: str, value: Any) -> str:
             if lower in {"true", "false"}:
                 return lower
         raise ValueError("Value must be boolean")
+    if definition["type"] == "choice":
+        options = definition.get("options", [])
+        if isinstance(value, str) and value in options:
+            return value
+        raise ValueError(f"Value must be one of {', '.join(options)}")
 
     # fallback to string
     return str(value)

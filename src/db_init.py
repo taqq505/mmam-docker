@@ -17,7 +17,8 @@ INIT_ADMIN = os.getenv("INIT_ADMIN", "true").lower() == "true"
 # Application setting defaults (key/value)
 SETTINGS_DEFAULTS = {
     "allow_anonymous_flows": "false",
-    "allow_anonymous_user_lookup": "false"
+    "allow_anonymous_user_lookup": "false",
+    "flow_lock_role": "admin"
 }
 INIT_SAMPLE_FLOW = os.getenv("INIT_SAMPLE_FLOW", "true").lower() == "true"
 
@@ -92,6 +93,10 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         nmos_is04_port INTEGER,
         nmos_is05_host TEXT,
         nmos_is05_port INTEGER,
+        nmos_is04_base_url TEXT,
+        nmos_is05_base_url TEXT,
+        nmos_is04_version TEXT,
+        nmos_is05_version TEXT,
 
         -- SDP info
         sdp_url TEXT,
@@ -138,11 +143,20 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         user_field8 TEXT,
 
         note TEXT,
+        locked BOOLEAN NOT NULL DEFAULT FALSE,
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    conn.commit()
+
+    # ensure columns exist for NMOS versions (for older DB)
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is04_version TEXT;")
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is05_version TEXT;")
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is04_base_url TEXT;")
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is05_base_url TEXT;")
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
     conn.commit()
 
     insert_sample_flow(cur, conn)

@@ -1,9 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from urllib.parse import urljoin, urlparse
-import requests
-
+from urllib.parse import urljoin
 from app.auth import require_roles
+from app.nmos_client import (
+    normalize_base_url,
+    fetch_json,
+    fetch_text,
+    parse_sdp_details,
+    fetch_connection_params,
+    parse_host_port,
+    DEFAULT_IS04_VERSION,
+    DEFAULT_IS05_VERSION
+)
 
 router = APIRouter()
 
@@ -11,129 +19,15 @@ router = APIRouter()
 class DiscoverRequest(BaseModel):
     is04_base_url: str
     is05_base_url: str
-    is04_version: str = "v1.3"
-    is05_version: str = "v1.1"
+    is04_version: str = DEFAULT_IS04_VERSION
+    is05_version: str = DEFAULT_IS05_VERSION
     timeout: int = 5
-
-
-def _normalize_base_url(url: str) -> str:
-    url = url.strip()
-    if not url.endswith("/"):
-        url += "/"
-    return url
-
-
-def _fetch_json(url: str, timeout: int):
-    print(f"[nmos] GET {url}")
-    try:
-        resp = requests.get(url, timeout=timeout)
-        resp.raise_for_status()
-        print(f"[nmos] {url} -> {resp.status_code}")
-        return resp.json()
-    except requests.exceptions.RequestException as exc:
-        print(f"[nmos] ERROR {url}: {exc}")
-        raise HTTPException(status_code=502, detail=f"Failed to fetch {url}: {exc}") from exc
-
-
-def _fetch_text(url: str, timeout: int) -> str | None:
-    print(f"[nmos] GET (text) {url}")
-    try:
-        resp = requests.get(url, timeout=timeout)
-        resp.raise_for_status()
-        print(f"[nmos] {url} -> {resp.status_code}")
-        return resp.text
-    except requests.exceptions.RequestException as exc:
-        print(f"[nmos] ERROR {url}: {exc}")
-        return None
-
-
-def _parse_sdp_details(sdp_text: str) -> dict:
-    result = {}
-    if not sdp_text:
-        return result
-    for raw_line in sdp_text.splitlines():
-        line = raw_line.strip()
-        if not line or "=" not in line:
-            continue
-        prefix, _, rest = line.partition("=")
-        if prefix == "m":
-            parts = rest.split()
-            if parts:
-                result.setdefault("media_type", parts[0])
-            if len(parts) >= 2:
-                try:
-                    result.setdefault("group_port_a", int(parts[1]))
-                except ValueError:
-                    pass
-        elif prefix == "c":
-            parts = rest.split()
-            if parts:
-                addr = parts[-1]
-                if "/" in addr:
-                    addr = addr.split("/")[0]
-                result.setdefault("multicast_addr_a", addr)
-        elif prefix == "a":
-            if rest.startswith("source-filter:"):
-                _, _, content = rest.partition(":")
-                tokens = content.strip().split()
-                if len(tokens) >= 5:
-                    maddr = tokens[3]
-                    src = tokens[4]
-                    if "/" in maddr:
-                        maddr = maddr.split("/")[0]
-                    result.setdefault("source_addr_a", src)
-                    result.setdefault("multicast_addr_a", maddr)
-            elif rest.startswith("rtpmap:"):
-                parts = rest.split()
-                if len(parts) >= 2:
-                    encoding = parts[1]
-                    if "/" in encoding:
-                        encoding = encoding.split("/")[0]
-                    result.setdefault("media_type", encoding)
-            elif rest.startswith("group:"):
-                result.setdefault("redundancy_group", rest)
-    return result
-
-
-def _parse_host_port(url: str):
-    parsed = urlparse(url)
-    host = parsed.hostname
-    port = parsed.port
-    if not port:
-        port = 443 if parsed.scheme == "https" else 80
-    return host, port
-
-
-def _fetch_connection_params(base: str, version: str, sender_id: str, timeout: int):
-    base = _normalize_base_url(base)
-    paths = [
-        f"connection/{version}/single/senders/{sender_id}/active/",
-        f"connection/{version}/single/senders/{sender_id}/staged/"
-    ]
-    data = None
-    for path in paths:
-        url = urljoin(base, path)
-        try:
-            data = _fetch_json(url, timeout)
-            break
-        except HTTPException:
-            continue
-    if data is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"IS-05 endpoint missing for sender {sender_id}. "
-                   f"Check version '{version}' or base URL."
-        )
-    params = data.get("transport_params") if isinstance(data, dict) else None
-    if isinstance(params, list):
-        return params
-    return []
 
 
 @router.post("/nmos/discover")
 def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("editor", "admin"))):
-    is04_base = _normalize_base_url(payload.is04_base_url)
-    is05_base = _normalize_base_url(payload.is05_base_url)
+    is04_base = normalize_base_url(payload.is04_base_url)
+    is05_base = normalize_base_url(payload.is05_base_url)
     version = payload.is04_version.strip() or "v1.3"
     conn_version = payload.is05_version.strip() or "v1.1"
     node_prefix = f"node/{version}/"
@@ -141,11 +35,11 @@ def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("ed
     senders_url = urljoin(is04_base, node_prefix + "senders")
     self_url = urljoin(is04_base, node_prefix + "self")
 
-    node_info = _fetch_json(self_url, payload.timeout)
-    flows = _fetch_json(flows_url, payload.timeout)
-    senders = _fetch_json(senders_url, payload.timeout)
-    is04_host, is04_port = _parse_host_port(payload.is04_base_url)
-    is05_host, is05_port = _parse_host_port(payload.is05_base_url)
+    node_info = fetch_json(self_url, payload.timeout)
+    flows = fetch_json(flows_url, payload.timeout)
+    senders = fetch_json(senders_url, payload.timeout)
+    is04_host, is04_port = parse_host_port(payload.is04_base_url)
+    is05_host, is05_port = parse_host_port(payload.is05_base_url)
 
     sender_map = {}
     for sender in senders or []:
@@ -159,14 +53,11 @@ def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("ed
         linked_senders = sender_map.get(flow_id, [])
         primary_sender = linked_senders[0] if linked_senders else None
         manifest_href = primary_sender.get("manifest_href") if primary_sender else None
-        sdp_cache = None
-        parsed = {}
-        if manifest_href:
-            sdp_cache = _fetch_text(manifest_href, payload.timeout)
-            parsed = _parse_sdp_details(sdp_cache) if sdp_cache else {}
+        sdp_cache = fetch_text(manifest_href, payload.timeout)
+        parsed = parse_sdp_details(sdp_cache) if sdp_cache else {}
         connection_params = []
         if primary_sender and primary_sender.get("id"):
-            connection_params = _fetch_connection_params(
+            connection_params = fetch_connection_params(
                 payload.is05_base_url,
                 conn_version,
                 primary_sender["id"],
@@ -223,8 +114,12 @@ def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("ed
             "sdp_cache": sdp_cache,
             "nmos_is04_host": is04_host,
             "nmos_is04_port": is04_port,
+            "nmos_is04_base_url": is04_base,
             "nmos_is05_host": is05_host,
             "nmos_is05_port": is05_port,
+            "nmos_is05_base_url": is05_base,
+            "nmos_is04_version": version,
+            "nmos_is05_version": conn_version,
             "raw_flow": flow,
             "raw_sender": linked_senders
         })

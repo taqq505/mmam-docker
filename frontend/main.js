@@ -40,8 +40,12 @@ const FIELD_GROUPS = [
       { key: "nmos_device_id", label: "NMOS Device ID" },
       { key: "nmos_is04_host", label: "NMOS IS-04 Host" },
       { key: "nmos_is04_port", label: "NMOS IS-04 Port", type: "number" },
+      { key: "nmos_is04_base_url", label: "NMOS IS-04 Base URL" },
       { key: "nmos_is05_host", label: "NMOS IS-05 Host" },
       { key: "nmos_is05_port", label: "NMOS IS-05 Port", type: "number" },
+      { key: "nmos_is05_base_url", label: "NMOS IS-05 Base URL" },
+      { key: "nmos_is04_version", label: "NMOS IS-04 Version" },
+      { key: "nmos_is05_version", label: "NMOS IS-05 Version" },
       { key: "nmos_label", label: "NMOS Label" },
       { key: "nmos_description", label: "NMOS Description" }
     ]
@@ -134,8 +138,12 @@ const DEFAULT_FLOW = () => ({
   nmos_node_description: "",
   nmos_is04_host: "",
   nmos_is04_port: null,
+  nmos_is04_base_url: "",
   nmos_is05_host: "",
   nmos_is05_port: null,
+  nmos_is05_base_url: "",
+  nmos_is04_version: "",
+  nmos_is05_version: "",
   sdp_url: "",
   sdp_cache: "",
   nmos_label: "",
@@ -166,7 +174,8 @@ const DEFAULT_FLOW = () => ({
   user_field6: "",
   user_field7: "",
   user_field8: "",
-  note: ""
+  note: "",
+  locked: false
 });
 
 const DEFAULT_QUICK_SEARCH = () => ({
@@ -245,6 +254,9 @@ createApp({
       newFlow: DEFAULT_FLOW(),
       editingFlowId: null,
       editingOriginalFlow: null,
+      lockToggleAllowed: false,
+      lockToggleLoading: false,
+      notification: null,
       newUser: {
         username: "",
         password: "",
@@ -275,6 +287,15 @@ createApp({
         importing: false,
         error: "",
         selections: {}
+      },
+      nmos: {
+        checking: false,
+        applying: false,
+        error: "",
+        targetFlowId: null,
+        result: null,
+        applyVisible: false,
+        applySelections: []
       }
     };
   },
@@ -359,6 +380,111 @@ createApp({
       this.logs.unshift(`[${stamp}] ${message}`);
       if (this.logs.length > 200) this.logs.pop();
     },
+    notify(message, type = "success", duration = 2000) {
+      this.notification = { message, type };
+      if (this._toastTimer) {
+        clearTimeout(this._toastTimer);
+      }
+      this._toastTimer = setTimeout(() => {
+        this.notification = null;
+        this._toastTimer = null;
+      }, duration);
+    },
+    isNmosDiff(fieldKey, flowId) {
+      if (!fieldKey || !flowId) return false;
+      if (!this.nmos.result || this.nmos.result.flow_id !== flowId) return false;
+      return Boolean(this.nmos.result.differences && this.nmos.result.differences[fieldKey]);
+    },
+    nmosDiffValue(fieldKey) {
+      if (!this.nmos.result || !this.nmos.result.differences) return null;
+      return this.nmos.result.differences[fieldKey] || null;
+    },
+    nmosDiffSummary(flowId) {
+      if (!this.nmos.result || this.nmos.result.flow_id !== flowId) return 0;
+      return Object.keys(this.nmos.result.differences || {}).length;
+    },
+    canApplyNmos(flowId) {
+      return Boolean(this.nmos.result && this.nmos.result.flow_id === flowId);
+    },
+    async checkNmos(flowId) {
+      if (!flowId) {
+        this.log("Flow ID is required for NMOS check");
+        return;
+      }
+      this.nmos.checking = true;
+      this.nmos.error = "";
+      this.nmos.targetFlowId = flowId;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/${flowId}/nmos/check`, {
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to check NMOS: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        this.nmos.result = data;
+        this.nmos.applySelections = Object.keys(data.differences || {});
+        this.log(`NMOS check completed (${this.nmos.applySelections.length} differences)`);
+        this.notify("NMOS check completed");
+      } catch (err) {
+        this.nmos.error = err.message;
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.nmos.checking = false;
+      }
+    },
+    openNmosApplyDialog(flowId) {
+      if (!this.canApplyNmos(flowId)) {
+        this.log("Run NMOS check before applying NMOS values");
+        return;
+      }
+      if (!this.nmos.applySelections.length) {
+        this.nmos.applySelections = Object.keys(this.nmos.result.differences || {});
+      }
+      this.nmos.applyVisible = true;
+    },
+    closeNmosApplyDialog() {
+      this.nmos.applyVisible = false;
+    },
+    async applyNmos(flowId) {
+      if (!this.canApplyNmos(flowId)) {
+        this.log("Cannot apply NMOS data without a recent check");
+        return;
+      }
+      if (!this.nmos.applySelections.length) {
+        this.log("Select at least one field to apply");
+        return;
+      }
+      this.nmos.applying = true;
+      this.nmos.error = "";
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/${flowId}/nmos/apply`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify({ fields: this.nmos.applySelections })
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to apply NMOS data: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        this.log(`NMOS fields updated: ${data.updated_fields.join(", ")}`);
+        this.notify("NMOS values applied");
+        this.nmos.applyVisible = false;
+        if (this.editingFlowId === flowId) {
+          await this.loadFlowForEdit(flowId);
+        }
+        await this.refreshFlows();
+        await this.checkNmos(flowId);
+      } catch (err) {
+        this.nmos.error = err.message;
+        this.log(err.message);
+      } finally {
+        this.nmos.applying = false;
+      }
+    },
     defaultBaseUrl() {
       try {
         if (typeof window === "undefined" || !window.location) {
@@ -377,6 +503,7 @@ createApp({
     saveBaseUrl() {
       localStorage.setItem("mmam_base_url", this.baseUrl);
       this.log(`Base URL saved: ${this.baseUrl}`);
+      this.notify("Base URL saved");
     },
     loadBaseUrl() {
       this.baseUrl = localStorage.getItem("mmam_base_url") || this.defaultBaseUrl();
@@ -392,6 +519,7 @@ createApp({
         const json = await resp.json();
         this.token = json.access_token;
         this.log("Login success");
+        this.notify("Logged in");
         await this.fetchMe();
         if (this.currentUser && this.currentUser.role === "admin") {
           await this.fetchSettings();
@@ -404,12 +532,14 @@ createApp({
       } catch (err) {
         console.error(err);
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     logout() {
       this.token = null;
       this.currentUser = null;
       this.log("Logged out");
+      this.notify("Logged out", "success", 1500);
     },
     async fetchMe() {
       if (!this.token) return;
@@ -421,6 +551,7 @@ createApp({
         this.currentUser = await resp.json();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     authHeaders() {
@@ -452,7 +583,8 @@ createApp({
             "source_addr_b",
             "source_port_b",
             "multicast_addr_b",
-            "group_port_b"
+            "group_port_b",
+            "locked"
           ].join(",")
         });
         const resp = await fetch(`${this.baseUrl}/api/flows?${params.toString()}`, {
@@ -466,6 +598,7 @@ createApp({
       } catch (err) {
         console.error(err);
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async fetchFlowSummary() {
@@ -503,7 +636,8 @@ createApp({
             "multicast_addr_a",
             "group_port_a",
             "flow_status",
-            "availability"
+            "availability",
+            "locked"
           ].join(",")
         });
         const resp = await fetch(`${this.baseUrl}/api/flows?${params.toString()}`, {
@@ -513,9 +647,11 @@ createApp({
         this.searchResults = await resp.json();
         this.searchMode = "Quick / 簡易";
         this.log(`Quick search finished (${this.searchResults.length} hits)`);
+        this.notify(`Quick search: ${this.searchResults.length} hits`);
       } catch (err) {
         console.error(err);
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async runAdvancedSearch() {
@@ -532,7 +668,8 @@ createApp({
             "multicast_addr_a",
             "group_port_a",
             "flow_status",
-            "availability"
+            "availability",
+            "locked"
           ].join(",")
         });
         if (this.advancedSearch.include_unused) {
@@ -600,9 +737,11 @@ createApp({
         this.searchResults = await resp.json();
         this.searchMode = "Advanced / 詳細";
         this.log(`Advanced search finished (${this.searchResults.length} hits)`);
+        this.notify(`Advanced search: ${this.searchResults.length} hits`);
       } catch (err) {
         console.error(err);
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     resetAdvancedSearch() {
@@ -618,10 +757,12 @@ createApp({
         });
         if (!resp.ok) throw new Error(`Failed to load detail: ${resp.status}`);
         const data = await resp.json();
+        delete data.lock_toggle_allowed;
         this.detailFlow = data;
         this.detailEntries = Object.entries(data);
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async loadFlowForEdit(flowId) {
@@ -631,19 +772,54 @@ createApp({
         });
         if (!resp.ok) throw new Error("Failed to load flow");
         const data = await resp.json();
+        const lockPermission = data.lock_toggle_allowed;
+        delete data.lock_toggle_allowed;
         this.newFlow = { ...DEFAULT_FLOW(), ...data };
+        this.newFlow.locked = Boolean(data.locked);
         this.editingFlowId = flowId;
         this.editingOriginalFlow = JSON.parse(JSON.stringify(this.newFlow));
+        this.lockToggleAllowed = Boolean(lockPermission);
         this.setView("newFlow");
         this.log(`Loaded flow ${flowId} into form`);
       } catch (err) {
         this.log(err.message);
       }
     },
+    async toggleFlowLock() {
+      if (!this.editingFlowId || !this.lockToggleAllowed || this.lockToggleLoading) return;
+      const target = !this.newFlow.locked;
+      this.lockToggleLoading = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/flows/${this.editingFlowId}/lock`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify({ locked: target })
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to toggle lock: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        this.newFlow.locked = data.locked;
+        if (!data.locked) {
+          this.editingOriginalFlow = JSON.parse(JSON.stringify(this.newFlow));
+        }
+        const msg = data.locked ? "Flow locked" : "Flow unlocked";
+        this.log(msg);
+        this.notify(msg);
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.lockToggleLoading = false;
+      }
+    },
     resetFlowForm() {
       this.newFlow = DEFAULT_FLOW();
       this.editingFlowId = null;
       this.editingOriginalFlow = null;
+      this.lockToggleAllowed = false;
+      this.lockToggleLoading = false;
     },
     closeDetail() {
       this.detailFlow = null;
@@ -683,6 +859,9 @@ createApp({
     },
     async submitFlow() {
       try {
+        if (this.editingFlowId && this.newFlow.locked) {
+          throw new Error("このフローはロックされています。解除してから更新してください。");
+        }
         const formData = { ...this.newFlow };
         if (
           formData.data_source === "manual" &&
@@ -727,6 +906,7 @@ createApp({
           });
           if (!resp.ok) throw new Error(`Failed to update flow: ${resp.status}`);
           this.log(`Flow updated: ${this.editingFlowId}`);
+          this.notify("Flow updated");
         } else {
           const resp = await fetch(`${this.baseUrl}/api/flows`, {
             method: "POST",
@@ -736,11 +916,13 @@ createApp({
           if (!resp.ok) throw new Error(`Failed to create flow: ${resp.status}`);
           const data = await resp.json();
           this.log(`Flow created: ${data.flow_id}`);
+          this.notify("Flow created");
         }
         this.resetFlowForm();
         await this.refreshFlows();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async fetchUsers() {
@@ -763,10 +945,12 @@ createApp({
         });
         if (!resp.ok) throw new Error("Failed to create user");
         this.log(`User created: ${this.newUser.username}`);
+        this.notify("User created");
         this.newUser = { username: "", password: "", role: "viewer" };
         await this.fetchUsers();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async updateUserInfo(user) {
@@ -781,9 +965,11 @@ createApp({
         });
         if (!resp.ok) throw new Error("Failed to update user");
         this.log(`User updated: ${user.username}`);
+        this.notify("User updated");
         await this.fetchUsers();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async deleteUser(username) {
@@ -795,9 +981,11 @@ createApp({
         });
         if (!resp.ok) throw new Error("Failed to delete user");
         this.log(`User deleted: ${username}`);
+        this.notify("User deleted");
         await this.fetchUsers();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async deleteFlow(flowId) {
@@ -809,10 +997,12 @@ createApp({
         });
         if (!resp.ok) throw new Error("Failed to delete flow");
         this.log(`Flow deleted: ${flowId}`);
+        this.notify("Flow deleted");
         await this.refreshFlows();
         this.searchResults = this.searchResults.filter(flow => flow.flow_id !== flowId);
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async fetchSettings() {
@@ -837,8 +1027,10 @@ createApp({
         const data = await resp.json();
         this.settings[key] = data.value;
         this.log(`Setting updated: ${key} = ${data.value}`);
+        this.notify(`Setting updated: ${key}`);
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     async hardDeleteFlow() {
@@ -860,10 +1052,12 @@ createApp({
           throw new Error(`Failed to hard delete flow: ${resp.status} ${detail}`);
         }
         this.log(`Hard deleted flow: ${flowId}`);
+        this.notify("Flow permanently deleted");
         this.hardDeleteFlowId = "";
         await this.refreshFlows();
       } catch (err) {
         this.log(err.message);
+        this.notify(err.message, "error");
       }
     },
     copyIs04ToIs05() {
@@ -914,9 +1108,11 @@ createApp({
         this.wizard.flows = data.flows || [];
         this.wizard.node = data.node || null;
         this.log(`NMOS discover success (${this.wizard.flows.length} flows)`);
+        this.notify(`NMOS discover: ${this.wizard.flows.length} flows`);
       } catch (err) {
         this.wizard.error = err.message;
         this.log(err.message);
+        this.notify(err.message, "error");
       } finally {
         this.wizard.loading = false;
       }
@@ -968,8 +1164,12 @@ createApp({
           nmos_device_id: flow.nmos_device_id,
           nmos_is04_host: flow.nmos_is04_host,
           nmos_is04_port: flow.nmos_is04_port,
+          nmos_is04_base_url: this.wizard.is04BaseUrl,
           nmos_is05_host: flow.nmos_is05_host,
           nmos_is05_port: flow.nmos_is05_port,
+          nmos_is05_base_url: this.wizard.is05BaseUrl,
+          nmos_is04_version: this.wizard.is04Version,
+          nmos_is05_version: this.wizard.is05Version,
           nmos_label: flow.label,
           nmos_description: flow.description,
           transport_protocol: flow.sender_transport || "RTP/UDP",
