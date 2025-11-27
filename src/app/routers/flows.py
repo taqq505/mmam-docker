@@ -60,7 +60,13 @@ KEYWORD_SEARCH_FIELDS = [
     "media_type", "redundancy_group"
 ]
 
+UUID_LIKE_FIELDS = {"flow_id", "nmos_node_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id"}
 LOCK_ROLE_SETTING_KEY = "flow_lock_role"
+
+COLLISION_FIELDS = [
+    ("multicast_addr_a", "Multicast Address A"),
+    ("multicast_addr_b", "Multicast Address B")
+]
 
 FLOW_DB_COLUMNS = [
     "flow_id", "display_name",
@@ -451,8 +457,12 @@ def list_flows(
         clauses = []
         for val in vals:
             if key in TEXT_FILTER_FIELDS:
-                clauses.append(f"{key} ILIKE %s")
-                values.append(f"%{val}%")
+                if key in UUID_LIKE_FIELDS:
+                    clauses.append(f"CAST({key} AS TEXT) = %s")
+                    values.append(val)
+                else:
+                    clauses.append(f"{key} ILIKE %s")
+                    values.append(f"%{val}%")
             elif key in INT_FILTER_FIELDS:
                 try:
                     int_val = int(val)
@@ -506,9 +516,8 @@ def list_flows(
     if q:
         keyword = f"%{q}%"
         clauses = []
-        uuid_fields = {"flow_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id", "nmos_node_id"}
         for field in KEYWORD_SEARCH_FIELDS:
-            if field in uuid_fields:
+            if field in UUID_LIKE_FIELDS:
                 clauses.append(f"CAST({field} AS TEXT) ILIKE %s")
             else:
                 clauses.append(f"{field} ILIKE %s")
@@ -606,6 +615,48 @@ def import_flows(payload: List[Flow], user=Depends(require_roles("admin"))):
         "updated": updated,
         "skipped_locked": skipped_locked
     }
+
+
+@router.get("/checker/collisions")
+def collision_checker(user=Depends(require_roles("editor", "admin"))):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    results = []
+    try:
+        for field, label in COLLISION_FIELDS:
+            cur.execute(
+                f"""
+                SELECT f.{field}, COUNT(*) AS cnt,
+                       json_agg(json_build_object(
+                           'flow_id', f.flow_id,
+                           'display_name', f.display_name,
+                           'nmos_node_label', COALESCE(f.nmos_node_label, '')
+                       ) ORDER BY f.flow_id) AS flows
+                FROM flows f
+                WHERE f.{field} IS NOT NULL
+                GROUP BY f.{field}
+                HAVING COUNT(*) > 1
+                ORDER BY cnt DESC;
+                """
+            )
+            rows = cur.fetchall()
+            entries = []
+            for value, count, json_flows in rows:
+                entries.append({
+                    "value": str(value),
+                    "count": count,
+                    "flows": json_flows
+                })
+            results.append({
+                "field": field,
+                "label": label,
+                "entries": entries
+            })
+    finally:
+        cur.close()
+        conn.close()
+
+    return {"results": results}
 
 
 @router.get("/flows/{flow_id}")

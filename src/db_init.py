@@ -160,6 +160,7 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
     conn.commit()
 
     insert_sample_flow(cur, conn)
+    ensure_indexes(cur, conn)
 
     # --------------------------------------------------------
     # Settings table
@@ -237,3 +238,22 @@ def insert_sample_flow(cur, conn):
     ))
     conn.commit()
     print(f"Inserted sample flow {sample_flow_id}.")
+
+
+def ensure_indexes(cur, conn):
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS flows_updated_at_idx ON flows(updated_at DESC);",
+        "CREATE INDEX IF NOT EXISTS flows_flow_status_idx ON flows(flow_status);",
+        "CREATE INDEX IF NOT EXISTS flows_availability_idx ON flows(availability);",
+        "CREATE INDEX IF NOT EXISTS flows_multicast_addr_a_idx ON flows(multicast_addr_a);",
+        "CREATE INDEX IF NOT EXISTS flows_multicast_addr_b_idx ON flows(multicast_addr_b);",
+        "CREATE INDEX IF NOT EXISTS flows_source_addr_a_idx ON flows(source_addr_a);",
+        "CREATE INDEX IF NOT EXISTS flows_source_addr_b_idx ON flows(source_addr_b);",
+        "CREATE INDEX IF NOT EXISTS flows_group_port_a_idx ON flows(group_port_a);",
+        "CREATE INDEX IF NOT EXISTS flows_group_port_b_idx ON flows(group_port_b);",
+        "CREATE INDEX IF NOT EXISTS flows_nmos_flow_id_idx ON flows(nmos_flow_id);",
+        "CREATE INDEX IF NOT EXISTS flows_nmos_sender_id_idx ON flows(nmos_sender_id);"
+    ]
+    for statement in indexes:
+        cur.execute(statement)
+    conn.commit()

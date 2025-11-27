@@ -224,7 +224,7 @@ createApp({
       token: null,
       currentUser: null,
       currentView: "dashboard",
-      views: ["dashboard", "flows", "search", "newFlow", "wizard", "users", "settings"],
+      views: ["dashboard", "flows", "search", "newFlow", "wizard", "checker", "users", "settings"],
       loginForm: {
         username: "admin",
         password: "admin"
@@ -259,6 +259,14 @@ createApp({
       notification: null,
       importFile: null,
       importingFlows: false,
+      checkerTabs: [
+        { key: "collisions", label: "Collision Check" }
+      ],
+      currentCheckerTab: "collisions",
+      checkerLoading: false,
+      checkerResults: {
+        collisions: null
+      },
       newUser: {
         username: "",
         password: "",
@@ -1105,6 +1113,55 @@ createApp({
         this.importingFlows = false;
       }
     },
+    setCheckerTab(key) {
+      this.currentCheckerTab = key;
+    },
+    async runCollisionCheck() {
+      if (!this.token) {
+        this.notify("Please log in to run the checker", "error");
+        return;
+      }
+      this.checkerLoading = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/checker/collisions`, {
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) throw new Error(`Failed to run collision check: ${resp.status}`);
+        const data = await resp.json();
+        this.checkerResults.collisions = {
+          fetchedAt: new Date().toLocaleString(),
+          results: data.results || []
+        };
+        this.notify("Collision check completed");
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.checkerLoading = false;
+      }
+    },
+    async copyToClipboard(text) {
+      if (!text) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        }
+        this.notify("Copied to clipboard");
+      } catch (err) {
+        console.error(err);
+        this.notify("Failed to copy", "error");
+      }
+    },
     async hardDeleteFlow() {
       const flowId = this.hardDeleteFlowId.trim();
       if (!flowId) {
@@ -1215,11 +1272,13 @@ createApp({
     async importSelectedFlows() {
       const selectedIds = Object.keys(this.wizard.selections).filter(id => this.wizard.selections[id]);
       if (selectedIds.length === 0) {
-        this.log("No NMOS flows selected / フローを選択してください");
+        this.log("No NMOS flows selected");
+        this.notify("Select at least one NMOS flow", "error");
         return;
       }
       this.wizard.importing = true;
       let success = 0;
+      const total = selectedIds.length;
       for (const id of selectedIds) {
         const flow = this.wizard.flows.find(item => item.nmos_flow_id === id);
         if (!flow) continue;
@@ -1285,6 +1344,9 @@ createApp({
       }
       if (success > 0) {
         await this.refreshFlows();
+        this.notify(`NMOS import: ${success}/${total} flows`);
+      } else {
+        this.notify("Failed to import NMOS flows", "error");
       }
       this.wizard.importing = false;
     },

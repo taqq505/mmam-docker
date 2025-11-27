@@ -42,6 +42,9 @@
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='wizard' && 'bg-white/20'" @click="navigate('wizard')">
                     NMOS Wizard / インポート
                 </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='checker' && 'bg-white/20'" @click="navigate('checker')">
+                    Checker / チェック
+                </button>
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='users' && 'bg-white/20'" @click="navigate('users')">
                     Users / ユーザー管理
                 </button>
@@ -266,7 +269,17 @@
                                         </div>
                                         <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
                                     </td>
-                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
+                                    <td class="px-3 py-2 text-xs">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-mono break-all">{{ flow.flow_id }}</span>
+                                            <button
+                                                class="text-[11px] px-2 py-1 border rounded text-slate-600 hover:bg-slate-100"
+                                                @click="copyToClipboard(flow.flow_id)"
+                                            >
+                                                Copy
+                                            </button>
+                                        </div>
+                                    </td>
                                     <td class="px-3 py-2 text-xs">{{ flow.flow_status }}/{{ flow.availability }}</td>
                                     <td class="px-3 py-2 text-xs font-mono">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
                                     <td class="px-3 py-2 text-xs font-mono">{{ flow.multicast_addr_a }}:{{ flow.group_port_a }}</td>
@@ -487,7 +500,17 @@
                                         </div>
                                         <div v-if="flow.nmos_node_label" class="text-xs text-slate-500 mt-0.5">{{ flow.nmos_node_label }}</div>
                                     </td>
-                                    <td class="px-3 py-2 font-mono text-xs">{{ flow.flow_id }}</td>
+                                    <td class="px-3 py-2 text-xs">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-mono break-all">{{ flow.flow_id }}</span>
+                                            <button
+                                                class="text-[11px] px-2 py-1 border rounded text-slate-600 hover:bg-slate-100"
+                                                @click="copyToClipboard(flow.flow_id)"
+                                            >
+                                                Copy
+                                            </button>
+                                        </div>
+                                    </td>
                                     <td class="px-3 py-2 text-xs">{{ flow.flow_status }} / {{ flow.availability }}</td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.source_addr_a }}:{{ flow.source_port_a }}</td>
                                     <td class="px-3 py-2 font-mono text-xs">{{ flow.multicast_addr_a }}:{{ flow.group_port_a }}</td>
@@ -751,6 +774,96 @@
                 </section>
             </template>
 
+            <template v-else-if="currentView==='checker'">
+                <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                    <div class="flex flex-wrap gap-2 text-sm">
+                        <button
+                            v-for="tab in checkerTabs"
+                            :key="tab.key"
+                            class="px-4 py-2 rounded border"
+                            :class="currentCheckerTab===tab.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-300'"
+                            @click="setCheckerTab(tab.key)"
+                        >
+                            {{ tab.label }}
+                        </button>
+                    </div>
+                    <div v-if="currentCheckerTab==='collisions'" class="space-y-4">
+                        <div class="flex flex-col md:flex-row md:items-center gap-3">
+                            <div>
+                                <h2 class="font-semibold text-lg">Collision Check</h2>
+                                <p class="text-xs text-slate-500">
+                                    Find duplicate multicast destinations across flows. Only logged-in editors/admins can run this check.
+                                </p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button
+                                    class="px-4 py-2 bg-slate-900 text-white rounded text-sm disabled:opacity-50"
+                                    @click="runCollisionCheck"
+                                    :disabled="checkerLoading"
+                                >
+                                    {{ checkerLoading ? 'Checking...' : 'Run Check' }}
+                                </button>
+                            </div>
+                        </div>
+                        <div v-if="checkerResults.collisions">
+                            <p class="text-xs text-slate-500">Last executed: {{ checkerResults.collisions.fetchedAt }}</p>
+                            <div v-for="group in checkerResults.collisions.results" :key="group.field" class="border rounded p-4 mb-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <h3 class="font-semibold text-base">{{ group.label }}</h3>
+                                    <span class="text-xs text-slate-500">
+                                        Duplicates: {{ group.entries.length }}
+                                    </span>
+                                </div>
+                                <div v-if="group.entries.length > 0" class="overflow-auto">
+                                    <table class="w-full text-xs border border-slate-200">
+                                        <thead class="bg-slate-100 text-slate-600">
+                                            <tr>
+                                                <th class="px-3 py-2 text-left">Value</th>
+                                                <th class="px-3 py-2 text-left">Count</th>
+                                                <th class="px-3 py-2 text-left">Flows</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="entry in group.entries" :key="entry.value" class="border-t">
+                                                <td class="px-3 py-2 font-mono break-all">{{ entry.value }}</td>
+                                                <td class="px-3 py-2">{{ entry.count }}</td>
+                                                <td class="px-3 py-2 text-xs">
+                                                    <ul class="space-y-1">
+                                                        <li
+                                                            v-for="flow in entry.flows"
+                                                            :key="flow.flow_id"
+                                                            class="border-b border-slate-200 pb-1 last:border-none last:pb-0"
+                                                        >
+                                                            <div class="font-mono text-[11px] break-all flex items-center gap-2">
+                                                                <span>ID: {{ flow.flow_id }}</span>
+                                                                <button
+                                                                    class="text-[10px] px-2 py-0.5 border rounded text-slate-600 hover:bg-slate-100"
+                                                                    @click="copyToClipboard(flow.flow_id)"
+                                                                >
+                                                                    Copy
+                                                                </button>
+                                                            </div>
+                                                            <div class="text-[11px] text-slate-600">
+                                                                Name: {{ flow.display_name || '-' }}
+                                                            </div>
+                                                            <div class="text-[11px] text-slate-500">
+                                                                Node: {{ flow.nmos_node_label || '-' }}
+                                                            </div>
+                                                        </li>
+                                                    </ul>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p v-else class="text-xs text-slate-500">No duplicates found.</p>
+                            </div>
+                        </div>
+                        <p v-else class="text-xs text-slate-500">No check has been executed yet.</p>
+                    </div>
+                </section>
+            </template>
+
             <template v-else-if="currentView==='users'">
                 <section class="bg-white rounded shadow-lg p-4 space-y-4">
                     <div class="flex items-center justify-between">
@@ -1008,9 +1121,15 @@
                                 <h3 class="text-lg font-semibold" v-text="detailFlow ? (detailFlow.display_name || detailFlow.flow_id) : ''"></h3>
                                 <span v-if="detailFlow?.locked" class="text-slate-500 text-base leading-none">⚿</span>
                             </div>
-                            <p class="text-xs text-slate-500">
+                            <p class="text-xs text-slate-500 flex items-center gap-2">
                                 flow_id:
                                 <span class="font-mono" v-text="detailFlow ? detailFlow.flow_id : ''"></span>
+                                <button
+                                    class="text-[11px] px-2 py-1 border rounded text-slate-600 hover:bg-slate-100"
+                                    @click="copyToClipboard(detailFlow?.flow_id)"
+                                >
+                                    Copy
+                                </button>
                             </p>
                         </div>
                         <div class="flex items-center gap-2">
