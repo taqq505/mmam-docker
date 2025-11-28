@@ -210,6 +210,7 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
 def insert_sample_flow(cur, conn):
     if not INIT_SAMPLE_FLOW:
         return
+
     cur.execute("SELECT COUNT(*) FROM flows;")
     count = cur.fetchone()[0]
     if count > 0:

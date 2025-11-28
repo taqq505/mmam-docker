@@ -360,6 +360,16 @@ def _diff_flow_fields(current: dict, snapshot: dict):
     return differences
 
 
+def _flow_has_nmos_sources(flow: dict) -> bool:
+    """
+    Determine whether the flow has enough NMOS metadata to perform snapshot fetching.
+    """
+    has_flow_id = bool(flow.get("nmos_flow_id") or flow.get("flow_id"))
+    has_is04 = bool(flow.get("nmos_is04_base_url") or flow.get("nmos_is04_host"))
+    has_is05 = bool(flow.get("nmos_is05_base_url") or flow.get("nmos_is05_host"))
+    return has_flow_id and has_is04 and has_is05
+
+
 def _lock_allowed_roles() -> set[str]:
     try:
         role = settings_store.get_setting(LOCK_ROLE_SETTING_KEY)
@@ -729,6 +739,51 @@ def collision_checker(user=Depends(require_roles("editor", "admin"))):
         conn.close()
 
     return {"results": results}
+
+
+@router.get("/checker/nmos")
+def nmos_checker(
+    timeout: int = 5,
+    user=Depends(require_roles("editor", "admin"))
+):
+    all_flows = _fetch_all_flows()
+    eligible = [flow for flow in all_flows if _flow_has_nmos_sources(flow)]
+    skipped = len(all_flows) - len(eligible)
+    differences = []
+    errors = []
+    for flow in eligible:
+        try:
+            snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
+            diff = _diff_flow_fields(flow, snapshot)
+            if diff:
+                differences.append({
+                    "flow_id": flow.get("flow_id"),
+                    "display_name": flow.get("display_name"),
+                    "nmos_node_label": flow.get("nmos_node_label"),
+                    "difference_count": len(diff),
+                    "fields": list(diff.keys()),
+                    "details": diff
+                })
+        except HTTPException as exc:
+            reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            errors.append({
+                "flow_id": flow.get("flow_id"),
+                "display_name": flow.get("display_name"),
+                "reason": reason
+            })
+        except Exception as exc:
+            errors.append({
+                "flow_id": flow.get("flow_id"),
+                "display_name": flow.get("display_name"),
+                "reason": str(exc)
+            })
+    return {
+        "checked": len(eligible),
+        "skipped": skipped,
+        "differences": differences,
+        "errors": errors,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 @router.get("/flows/{flow_id}")

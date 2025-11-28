@@ -273,12 +273,14 @@ createApp({
       importFile: null,
       importingFlows: false,
       checkerTabs: [
-        { key: "collisions", label: "Collision Check" }
+        { key: "collisions", label: "Collision Check" },
+        { key: "nmos", label: "NMOS Check" }
       ],
       currentCheckerTab: "collisions",
       checkerLoading: false,
       checkerResults: {
-        collisions: null
+        collisions: null,
+        nmos: null
       },
       newUser: {
         username: "",
@@ -1300,6 +1302,34 @@ createApp({
           results: data.results || []
         };
         this.notify("Collision check completed");
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.checkerLoading = false;
+      }
+    },
+    async runNmosCheck() {
+      if (!this.token) {
+        this.notify("Please log in to run the checker", "error");
+        return;
+      }
+      this.checkerLoading = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/checker/nmos`, {
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) throw new Error(`Failed to run NMOS check: ${resp.status}`);
+        const data = await resp.json();
+        this.checkerResults.nmos = {
+          fetchedAt: new Date().toLocaleString(),
+          checked: data.checked || 0,
+          skipped: data.skipped || 0,
+          differences: data.differences || [],
+          errors: data.errors || []
+        };
+        const diffCount = this.checkerResults.nmos.differences.length;
+        this.notify(`NMOS check completed (${diffCount} difference${diffCount === 1 ? "" : "s"})`);
       } catch (err) {
         this.log(err.message);
         this.notify(err.message, "error");
