@@ -16,7 +16,8 @@ Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの登録�
 docker-compose.yml
 ├─ mmam   : FastAPI アプリ (uvicorn --reload)
 ├─ db     : PostgreSQL 16
-└─ ui     : nginx で `frontend/` を配信
+├─ ui     : nginx で `frontend/` を配信
+└─ mqtt   : Mosquitto (MQTT + WebSocket リスナー)
 ```
 
 ホスト側の `src/` と `logs/` を `mmam` コンテナにマウントしているため、ソースを編集すると即座にリロードされます。UI はビルド不要の静的ファイルで、ブラウザ側 `localStorage` に API ベースURLとログイン情報を保存します。
@@ -60,6 +61,46 @@ docker-compose.yml
 - Search では簡易検索 (`q`) と Advanced Search を提供。Advanced Search の Limit 入力は上部に配置。
 - New Flow で手動登録、NMOS Wizard で `/api/nmos/discover` 結果から一括インポート。
 - Settings では API Base URL やログイン情報、DB設定のトグル、Hard Delete フォームを提供。
+
+### リアルタイム通知 (MQTT)
+
+`docker-compose.yml` には Mosquitto ブローカーが含まれており、`.env` の `MQTT_ENABLED=true` でリアルタイム通知が有効になります。
+
+| 変数 | 説明 |
+|------|------|
+| `MQTT_HOST` / `MQTT_PORT` | FastAPI が TCP で接続するブローカー (デフォルト: `mqtt:1883`) |
+| `MQTT_WS_URL` | ブラウザが WebSocket で接続する URL。例: `ws://localhost:9001` |
+| `MQTT_TOPIC_FLOW_UPDATES` | トピックの基底 (`mmam/flows/events`)。`/all` と `/flow/<flow_id>` に階層化して publish |
+| `MQTT_USERNAME/PASSWORD` / `MQTT_WS_USERNAME/PASSWORD` | 必要に応じて認証情報を設定 |
+
+フローを `PATCH /api/flows/{id}` や NMOS反映で更新すると、FastAPI が軽量サマリ＋変更差分 (`diff`) を MQTT へ publish します（新規・削除は対象外）。
+
+#### 使い方
+
+1. `.env` で `MQTT_ENABLED=true` を指定し、`docker compose up`。
+2. ブラウザ UI はログイン後、自動で WebSocket (`MQTT_WS_URL`) に接続して全件 (`.../all`) を購読します。
+3. 外部ツール（MQTTX 等）で購読する場合は以下のトピックを使用:
+   - `mmam/flows/events/all`: すべての更新を取得。
+   - `mmam/flows/events/flow/<flow_id>`: 特定フローのみ。ワイルドカード `.../flow/#` も可。
+4. ペイロード例:
+
+```json
+{
+  "event": "updated",
+  "flow_id": "35f0c2d7-db37-4972-b53e-4e7424276085",
+  "flow": {
+    "display_name": "Cam Video1",
+    "flow_status": "active",
+    "updated_at": "2025-11-27T07:45:12.871925"
+  },
+  "diff": {
+    "alias1": { "old": "Tokyo Cam1", "new": "Tokyo Cam1 (HDR)" },
+    "locked": { "old": false, "new": true }
+  }
+}
+```
+
+`diff` には更新されたフィールドのみ `{old,new}` 形式で格納されるため、フロー一覧を取得し直さなくても変更内容を把握できます。
 
 ### NMOS 連携
 
@@ -206,7 +247,8 @@ Media Multicast Address Manager (MMAM) is a lightweight tool to register, search
 docker-compose.yml
 ├─ mmam   : FastAPI app (uvicorn --reload)
 ├─ db     : PostgreSQL 16
-└─ ui     : nginx serving `frontend/`
+├─ ui     : nginx serving `frontend/`
+└─ mqtt   : Mosquitto broker (MQTT + WebSocket)
 ```
 
 `src/` and `logs/` on the host are bind-mounted into the `mmam` container, so any source edit triggers uvicorn reloads. The UI is a static bundle; API base URL and login inputs are stored in browser `localStorage`.
@@ -250,6 +292,46 @@ Open `http://<host>:4173` in a browser to access the control panel.
 - Search provides quick search (`q`) and Advanced Search (limit input is located at the top).
 - New Flow registers flows manually; NMOS Wizard lets you bulk-import NMOS results via `/api/nmos/discover`.
 - Settings manages API Base URL, login, DB toggles, and the Hard Delete form.
+
+### Realtime notifications (MQTT)
+
+`docker-compose.yml` ships with Mosquitto so the MQTT stack becomes available as soon as `.env` sets `MQTT_ENABLED=true`.
+
+| Variable | Purpose |
+|----------|---------|
+| `MQTT_HOST` / `MQTT_PORT` | Backend TCP endpoint (`mqtt:1883` by default) |
+| `MQTT_WS_URL` | Browser WebSocket URL (e.g. `ws://localhost:9001`) |
+| `MQTT_TOPIC_FLOW_UPDATES` | Topic base (`mmam/flows/events`). The API publishes to `<base>/all` and `<base>/flow/<flow_id>` |
+| `MQTT_USERNAME/PASSWORD`, `MQTT_WS_USERNAME/PASSWORD` | Optional credentials if Mosquitto requires auth |
+
+Whenever `PATCH /api/flows/{id}` (or NMOS apply) succeeds, the API publishes an “updated” event that contains a lightweight summary plus a `diff` object (creation/deletion events are not published).
+
+#### Usage
+
+1. Enable MQTT in `.env` and run `docker compose up`.
+2. The browser UI automatically connects to the WebSocket URL and subscribes to `<base>/all`.
+3. External clients can subscribe to:
+   - `mmam/flows/events/all` for every update.
+   - `mmam/flows/events/flow/<flow_id>` (or `…/flow/#`) for a subset.
+4. Payload example:
+
+```json
+{
+  "event": "updated",
+  "flow_id": "35f0c2d7-db37-4972-b53e-4e7424276085",
+  "flow": {
+    "display_name": "Cam Video1",
+    "flow_status": "active",
+    "updated_at": "2025-11-27T07:45:12.871925"
+  },
+  "diff": {
+    "alias1": { "old": "Tokyo Cam1", "new": "Tokyo Cam1 (HDR)" },
+    "locked": { "old": false, "new": true }
+  }
+}
+```
+
+Consumers can inspect the `diff` to see exactly which fields changed without re-fetching the entire list.
 
 ### NMOS integration
 

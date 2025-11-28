@@ -257,6 +257,19 @@ createApp({
       lockToggleAllowed: false,
       lockToggleLoading: false,
       notification: null,
+      summaryRefreshTimer: null,
+      realtime: {
+        enabled: false,
+        wsUrl: "",
+        topic: "",
+        topicAll: "",
+        topicFlowPrefix: "",
+        username: "",
+        password: "",
+        clientIdPrefix: "mmam-ui",
+        client: null,
+        connected: false
+      },
       importFile: null,
       importingFlows: false,
       checkerTabs: [
@@ -317,9 +330,15 @@ createApp({
       this.fetchMe();
     }
     this.refreshFlows();
+    this.fetchRealtimeConfig();
   },
   beforeUnmount() {
     window.removeEventListener("popstate", this.handlePopState);
+    this.teardownRealtime();
+    if (this.summaryRefreshTimer) {
+      clearTimeout(this.summaryRefreshTimer);
+      this.summaryRefreshTimer = null;
+    }
   },
   computed: {
     normalizedLimit() {
@@ -531,6 +550,7 @@ createApp({
         this.log("Login success");
         this.notify("Logged in");
         await this.fetchMe();
+        await this.fetchRealtimeConfig();
         if (this.currentUser && this.currentUser.role === "admin") {
           await this.fetchSettings();
           await this.fetchUsers();
@@ -548,6 +568,7 @@ createApp({
     logout() {
       this.token = null;
       this.currentUser = null;
+      this.teardownRealtime();
       this.log("Logged out");
       this.notify("Logged out", "success", 1500);
     },
@@ -568,6 +589,152 @@ createApp({
       const headers = { "Content-Type": "application/json" };
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
       return headers;
+    },
+    async fetchRealtimeConfig() {
+      try {
+        const headers = this.token ? { Authorization: `Bearer ${this.token}` } : {};
+        const resp = await fetch(`${this.baseUrl}/api/realtime/config`, { headers });
+        if (!resp.ok) {
+          if ([401, 403, 404].includes(resp.status)) {
+            this.teardownRealtime();
+            this.realtime.enabled = false;
+            return;
+          }
+          throw new Error(`Failed to load realtime config: ${resp.status}`);
+        }
+        const data = await resp.json();
+        const enabled = Boolean(data.enabled && data.ws_url && data.topic);
+        this.realtime.enabled = enabled;
+        this.realtime.wsUrl = data.ws_url || "";
+        this.realtime.topicAll = data.topic_all || data.topic || "";
+        this.realtime.topicFlowPrefix = data.topic_flow_prefix || "";
+        this.realtime.topic = this.realtime.topicAll || data.topic || "";
+        this.realtime.username = data.username || "";
+        this.realtime.password = data.password || "";
+        this.realtime.clientIdPrefix = data.client_id_prefix || "mmam-ui";
+        if (enabled) {
+          this.connectRealtime();
+        } else {
+          this.teardownRealtime();
+        }
+      } catch (err) {
+        console.warn("Realtime config error", err);
+      }
+    },
+    connectRealtime() {
+      if (typeof mqtt === "undefined" || !this.realtime.enabled) {
+        return;
+      }
+      if (!this.realtime.wsUrl || !this.realtime.topic) {
+        return;
+      }
+      this.teardownRealtime();
+      const clientId = `${this.realtime.clientIdPrefix}-${Math.random().toString(16).slice(2, 10)}`;
+      const options = {
+        clientId,
+        reconnectPeriod: 5000,
+        connectTimeout: 5000,
+        clean: true
+      };
+      if (this.realtime.username) options.username = this.realtime.username;
+      if (this.realtime.password) options.password = this.realtime.password;
+      try {
+        const client = mqtt.connect(this.realtime.wsUrl, options);
+        this.realtime.client = client;
+        client.on("connect", () => {
+          this.realtime.connected = true;
+          this.log("MQTT connected");
+          const subscribeTargets = new Set();
+          if (this.realtime.topicAll) {
+            subscribeTargets.add(this.realtime.topicAll);
+          } else if (this.realtime.topic) {
+            subscribeTargets.add(this.realtime.topic);
+          }
+          if (!this.realtime.topicAll && this.realtime.topicFlowPrefix) {
+            subscribeTargets.add(`${this.realtime.topicFlowPrefix}/#`);
+          }
+          subscribeTargets.forEach(topic => {
+            if (!topic) return;
+            client.subscribe(topic, err => {
+              if (err) {
+                this.log(`MQTT subscribe failed: ${topic}`);
+              }
+            });
+          });
+        });
+        client.on("message", (_, payload) => {
+          try {
+            const data = JSON.parse(payload.toString());
+            this.handleRealtimeFlowEvent(data);
+          } catch (err) {
+            console.warn("Failed to parse MQTT payload", err);
+          }
+        });
+        client.on("error", err => {
+          this.realtime.connected = false;
+          this.log(`MQTT error: ${err.message || err}`);
+        });
+        client.on("close", () => {
+          this.realtime.connected = false;
+        });
+      } catch (err) {
+        console.error("MQTT connect error", err);
+      }
+    },
+    teardownRealtime() {
+      if (this.realtime.client) {
+        try {
+          this.realtime.client.end(true);
+        } catch (err) {
+          console.warn("MQTT disconnect failed", err);
+        }
+      }
+      this.realtime.client = null;
+      this.realtime.connected = false;
+    },
+    handleRealtimeFlowEvent(event) {
+      if (!event || !event.flow_id) return;
+      const action = event.event || event.action || "updated";
+      if (action === "deleted" || action === "hard_deleted") {
+        this.flows = this.flows.filter(flow => flow.flow_id !== event.flow_id);
+        this.searchResults = this.searchResults.filter(flow => flow.flow_id !== event.flow_id);
+        if (this.detailFlow && this.detailFlow.flow_id === event.flow_id) {
+          this.detailFlow = null;
+          this.detailEntries = [];
+        }
+      } else if (event.flow) {
+        this.mergeFlowIntoCollections(event.flow, action);
+      }
+      this.scheduleSummaryRefresh();
+    },
+    mergeFlowIntoCollections(flow, action = "updated") {
+      if (!flow || !flow.flow_id) return;
+      const applyToList = list => {
+        const idx = list.findIndex(item => item.flow_id === flow.flow_id);
+        if (idx >= 0) {
+          list.splice(idx, 1, { ...list[idx], ...flow });
+          return true;
+        }
+        return false;
+      };
+      const inMain = applyToList(this.flows);
+      const inSearch = applyToList(this.searchResults);
+      if (this.detailFlow && this.detailFlow.flow_id === flow.flow_id) {
+        this.detailFlow = { ...this.detailFlow, ...flow };
+      }
+      if (!inMain && !inSearch && action === "created") {
+        this.refreshFlows();
+      }
+    },
+    scheduleSummaryRefresh() {
+      if (this.summaryRefreshTimer) return;
+      this.summaryRefreshTimer = setTimeout(async () => {
+        try {
+          await this.fetchFlowSummary();
+        } finally {
+          this.summaryRefreshTimer = null;
+        }
+      }, 1000);
     },
     async refreshFlows() {
       try {

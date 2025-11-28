@@ -4,11 +4,11 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from app.db import get_db_connection
-from app import nmos_client, settings_store
+from app import nmos_client, settings_store, mqtt_client
 from app.auth import require_roles, decode_token
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Iterable
 
 # --------------------------------------------------------
 # Define router instance
@@ -87,6 +87,12 @@ FLOW_DB_COLUMNS = [
     "user_field1", "user_field2", "user_field3", "user_field4",
     "user_field5", "user_field6", "user_field7", "user_field8",
     "note", "locked"
+]
+
+FLOW_EVENT_FIELDS = [
+    "flow_id", "display_name", "nmos_node_label",
+    "flow_status", "availability", "locked",
+    "created_at", "updated_at"
 ]
 
 FLOW_INSERT_COLUMNS_SQL = ", ".join(FLOW_DB_COLUMNS)
@@ -384,6 +390,52 @@ class NmosApplyRequest(BaseModel):
     timeout: int | None = None
 
 
+def _serialize_value(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
+
+
+def _flow_event_payload(flow: dict | None) -> dict | None:
+    if not flow:
+        return None
+    payload = {}
+    for field in FLOW_EVENT_FIELDS:
+        payload[field] = _serialize_value(flow.get(field))
+    return payload
+
+
+def _flow_diff(before: dict | None, after: dict | None, keys: Iterable[str] | None = None) -> dict:
+    if not before or not after:
+        return {}
+    if keys:
+        candidates = set(keys)
+    else:
+        candidates = set(before.keys()) | set(after.keys())
+    differences = {}
+    for key in candidates:
+        old_val = before.get(key)
+        new_val = after.get(key)
+        if old_val == new_val:
+            continue
+        differences[key] = {
+            "old": _serialize_value(old_val),
+            "new": _serialize_value(new_val)
+        }
+    return differences
+
+
+def _publish_flow_event(event: str, flow: dict | None = None, flow_id: str | None = None, diff: dict | None = None):
+    if event != "updated":
+        return
+    target_id = flow_id or (flow.get("flow_id") if flow else None)
+    if not target_id:
+        return
+    mqtt_client.publish_flow_event(event, str(target_id), _flow_event_payload(flow), diff or None)
+
+
 # --------------------------------------------------------
 # GET /api/flows
 # Return flow list (with optional filter)
@@ -567,6 +619,13 @@ def flow_summary(
     return {"total": total, "active": active}
 
 
+@router.get("/realtime/config")
+def realtime_config(
+    user=Depends(require_roles("viewer", "editor", "admin", allow_anonymous_setting="allow_anonymous_flows"))
+):
+    return mqtt_client.get_frontend_config()
+
+
 @router.get("/flows/export")
 def export_flows(user=Depends(require_roles("admin"))):
     flows = _fetch_all_flows()
@@ -586,28 +645,41 @@ def import_flows(payload: List[Flow], user=Depends(require_roles("admin"))):
     inserted = 0
     updated = 0
     skipped_locked = 0
+    changed_updates: list[tuple[str, dict]] = []
     try:
         for flow in payload:
             flow_id = flow.flow_id or flow.nmos_flow_id or str(uuid.uuid4())
-            cur.execute("SELECT locked FROM flows WHERE flow_id=%s;", (flow_id,))
+            cur.execute("SELECT * FROM flows WHERE flow_id=%s;", (flow_id,))
             existing_row = cur.fetchone()
             if existing_row:
-                if existing_row[0]:
+                colnames = [desc[0] for desc in cur.description]
+                existing = dict(zip(colnames, existing_row))
+                if existing.get("locked"):
                     skipped_locked += 1
                     continue
                 is_update = True
             else:
+                existing = None
                 is_update = False
 
             _upsert_flow(cur, flow_id, flow)
             if is_update:
                 updated += 1
+                changed_updates.append((flow_id, existing))
             else:
                 inserted += 1
         conn.commit()
     finally:
         cur.close()
         conn.close()
+
+    for flow_id, before in changed_updates:
+        try:
+            flow_record = _fetch_flow_record(flow_id)
+        except HTTPException:
+            flow_record = None
+        diff = _flow_diff(before, flow_record) if before and flow_record else {}
+        _publish_flow_event("updated", flow_record, flow_id, diff=diff)
 
     return {
         "result": "ok",
@@ -722,6 +794,9 @@ def apply_nmos_updates(
     conn.commit()
     cur.close()
     conn.close()
+    updated_flow = _fetch_flow_record(flow_id)
+    diff = _flow_diff(flow, updated_flow, updates.keys())
+    _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
     return {"result": "ok", "flow_id": flow_id, "updated_fields": list(updates.keys())}
 
 
@@ -755,6 +830,9 @@ def set_flow_lock(
     conn.commit()
     cur.close()
     conn.close()
+    updated_flow = _fetch_flow_record(flow_id)
+    diff = _flow_diff(flow, updated_flow, ["locked"])
+    _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
     return {"result": "ok", "flow_id": flow_id, "locked": new_state}
 
 
@@ -801,6 +879,9 @@ def update_flow(
     conn.commit()
     cur.close()
     conn.close()
+    updated_flow = _fetch_flow_record(flow_id)
+    diff = _flow_diff(current, updated_flow, updates.keys())
+    _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
     return {"result": "ok", "flow_id": flow_id, "updated_fields": list(updates.keys())}
 
 
@@ -822,6 +903,7 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
         cur.close()
         conn.close()
         raise HTTPException(status_code=409, detail="Flow ID already exists")
+    restored = bool(existing)
     try:
         _upsert_flow(cur, flow_id, flow)
         conn.commit()
@@ -829,6 +911,8 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
         cur.close()
         conn.close()
 
+    new_flow = _fetch_flow_record(flow_id)
+    _publish_flow_event("updated" if restored else "created", new_flow, flow_id)
     return {"result": "ok", "flow_id": flow_id}
 
 
@@ -853,6 +937,8 @@ def delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     conn.commit()
     cur.close()
     conn.close()
+    updated_flow = _fetch_flow_record(flow_id)
+    _publish_flow_event("deleted", updated_flow, flow_id)
     return {"result": "ok", "flow_id": flow_id, "deleted": True}
 
 
@@ -874,4 +960,5 @@ def hard_delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     conn.commit()
     cur.close()
     conn.close()
+    _publish_flow_event("hard_deleted", flow, flow_id)
     return {"result": "ok", "flow_id": flow_id, "hard_deleted": True}

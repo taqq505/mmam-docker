@@ -9,6 +9,7 @@ services:
       - "8080:8080"
     depends_on:
       - db
+      - mqtt
     volumes:
       - ./src:/app/src        # Host-side source mount for dev
       - ./logs:/app/logs      # Optional: Persistent logs
@@ -36,5 +37,18 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
 
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
 volumes:
   db_data:
+  mosquitto_data:
+  mosquitto_log:

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import users, flows
 from app.routers import settings as settings_router
 from app.routers import nmos as nmos_router
+from app import mqtt_client
 from db_init import init_db
 
 app = FastAPI(title="MMAM API")
@@ -27,6 +28,12 @@ def startup_event():
     except Exception as e:
         print(f"[startup] Database initialization failed ❌: {e}")
         raise
+    mqtt_client.ensure_client()
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    mqtt_client.shutdown()
 
 # --------------------------------------------------------
 # Router registration
