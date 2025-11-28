@@ -1,23 +1,32 @@
 # mmam-docker
 
-> English version of this document is included below.
+> [Jump to English version](#mmam-docker-english)
 
 ![NMOS](https://img.shields.io/badge/NMOS-IS--04-informational)
 ![NMOS](https://img.shields.io/badge/NMOS-IS--05-informational)
 
 
-Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの登録・検索・ユーザー管理を行う軽量ツールです。FastAPI + PostgreSQL をバックエンドに、Vue 3 + Tailwind CSS の静的 UI を nginx から配信します。
+Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローを集中管理するためのアプリケーションです。FastAPI + PostgreSQL で REST API とデータベースを提供し、Vue 3 + Tailwind の Web UI、MQTT ベースのリアルタイム通知を 1 パッケージにまとめています。
 
-🛰️ このプロジェクトは NMOS (IS-04 / IS-05) と SMPTE ST 2110 ワークフローをサポートしています。 #NMOS #ST2110
+🛰️ NMOS (IS-04 / IS-05) / SMPTE ST 2110 に対応。 #NMOS #ST2110
 
-## 主な機能
+## 目玉ポイント
 
-- ST 2110 / 2022-7 フロー情報のデータベース化（エイリアス 8 本＋ユーザーフィールド 8 本）
-- NMOS Node/Connection API からのウィザード型インポート・差分チェック＆反映
-- クイック検索・詳細検索・JSON Import/Export
-- フローごとのロック機構とロール制御、ハード削除フォーム
-- Checker（マルチキャスト衝突など）のタブ表示
-- MQTT によるリアルタイム更新通知（変更差分を含む）
+1. **REST API × 高性能データベース**  
+   - 8本の別名（alias）と8本のユーザーフィールドを備えた柔軟なスキーマ。  
+   - API 経由で名称や補足情報を読み書きでき、外部システムとの連携に最適。  
+   - UUID（flow_id）を共通キーとして、放送設備間で名称を受け渡し可能。
+
+2. **Web UI × NMOS ウィザード**  
+   - IS-04/05 ベースURLを指定するだけでノードからフロー情報を自動取り込み。  
+   - 取り込み後はチェック機能で NMOS との差分を赤枠表示、必要な項目だけ反映。  
+   - クイック/詳細検索、JSON Import/Export、ロック切替など現場運用に必要な操作をブラウザだけで完結。
+
+3. **MQTT × リアルタイム反映**  
+   - `MQTT_ENABLED=true` にすると Mosquitto が立ち上がり、フロー更新時に差分をブロードキャスト。  
+   - ブロードキャストコントローラなどは `mmam/flows/events/all` または `…/flow/<flow_id>` を購読するだけで、名称変更等を即座に受信して画面へ反映できる。
+
+この 3 つの組み合わせにより、「データベース」「REST API」「Web UI」「MQTT 通知」の全レイヤーを単一プロジェクトで利用できます。
 
 ## 前提条件
 
@@ -362,12 +371,9 @@ Media Multicast Address Manager (MMAM) is a lightweight registry for ST 2110 / N
 
 ## Highlights
 
-- Rich flow schema with 2022-7 paths, aliases, custom fields, and metadata
-- NMOS wizard to discover/import flows, plus NMOS diff/apply buttons
-- Quick / Advanced search, JSON import/export, hard delete
-- Flow lock toggle with role control, user/setting management
-- Checker tabs (e.g., multicast collision report)
-- MQTT notifications with per-field diff so external systems stay in sync
+1. **REST API + Database** – Feature-rich schema (aliases ×8, user fields ×8) exposed via FastAPI, perfect for exchanging human-readable names across systems using `flow_id` as the key.
+2. **Web UI + NMOS wizard** – Auto-import flows directly from IS-04/05 nodes, run NMOS diff checks, and apply selected fields. Quick/Advanced search, JSON import/export, and lock controls are all browser-based.
+3. **MQTT + Realtime updates** – Enable Mosquitto, and every flow update publishes a payload with per-field diffs to `mmam/flows/events/all` or `…/flow/<flow_id>`, so broadcast controllers or dashboards can mirror naming changes instantly.
 
 ## Requirements
 
