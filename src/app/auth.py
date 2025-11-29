@@ -1,5 +1,5 @@
 import os, jwt, datetime
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from app import settings_store
 
@@ -59,7 +59,9 @@ def require_roles(*allowed_roles: str, allow_anonymous_setting: str | None = Non
     Optionally allows anonymous access when the given setting key evaluates to True.
     指定したロールのいずれかを持つか検証し、設定で匿名アクセスを許可できるDependsヘルパー。
     """
-    def dependency(token: str | None = Depends(oauth2_scheme)):
+    def dependency(request: Request, token: str | None = Depends(oauth2_scheme)):
+        if request.method == "OPTIONS":
+            return {"username": "preflight", "role": "preflight"}
         if AUTH_DISABLED:
             return {"username": "dev", "role": "admin"}
 

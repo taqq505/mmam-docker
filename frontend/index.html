@@ -42,6 +42,9 @@
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='wizard' && 'bg-white/20'" @click="navigate('wizard')">
                     NMOS Wizard / インポート
                 </button>
+                <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='planner' && 'bg-white/20'" @click="navigate('planner')">
+                    Planner / プランナー
+                </button>
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='checker' && 'bg-white/20'" @click="navigate('checker')">
                     Checker / チェック
                 </button>
@@ -195,6 +198,481 @@
                 <h2 class="font-semibold text-lg mb-2">Debug Console</h2>
                 <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 max-h-60 overflow-auto">{{ logs.join("\n") }}</pre>
             </section>
+            </template>
+
+            <template v-else-if="currentView==='planner'">
+                <section class="space-y-4">
+                    <div class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div class="flex flex-wrap gap-3 border-b border-slate-200 pb-2 text-sm">
+                            <button
+                                class="px-4 py-2 font-medium transition"
+                                :class="planner.tab==='view' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-500 border-b-2 border-transparent hover:text-slate-700'"
+                                @click="planner.tab='view'"
+                            >
+                                Explorer
+                            </button>
+                            <button
+                                class="px-4 py-2 font-medium transition"
+                                :class="planner.tab==='manage' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-500 border-b-2 border-transparent hover:text-slate-700'"
+                                @click="planner.tab='manage'"
+                            >
+                                Manage
+                            </button>
+                            <button
+                                class="px-4 py-2 font-medium transition"
+                                :class="planner.tab==='backup' ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-500 border-b-2 border-transparent hover:text-slate-700'"
+                                @click="planner.tab='backup'"
+                            >
+                                Backup
+                            </button>
+                        </div>
+                        <div v-if="planner.tab==='view'" class="space-y-4">
+                            <p class="text-xs text-slate-500">Choose a drive (/8) → folder (parent) → view (child) to render the address grid.</p>
+                            <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
+                                <aside class="bg-white border rounded-lg p-3 space-y-3 shadow">
+                                    <div>
+                                        <p class="text-sm font-semibold">Drives</p>
+                                        <select
+                                            class="mt-2 w-full border rounded px-3 py-2 text-sm bg-white"
+                                            :value="planner.selectedDriveId || ''"
+                                            @change="handleDriveChange"
+                                        >
+                                            <option v-for="drive in planner.drives" :key="drive.id" :value="drive.id">
+                                                {{ drive.description || (drive.start_ip + ' /8') }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">Folders</p>
+                                        <div class="mt-2 max-h-[420px] overflow-auto border rounded bg-slate-50 p-2 space-y-1">
+                                            <button
+                                                class="w-full text-left px-3 py-2 rounded border text-xs mb-2"
+                                                :class="planner.selectedFolderId===planner.selectedDriveId ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 hover:bg-slate-100'"
+                                                @click="planner.selectedFolderId = planner.selectedDriveId"
+                                            >
+                                                {{ driveLabel(planner.drives.find(d => d.id === planner.selectedDriveId)) }}
+                                            </button>
+                                            <div v-for="row in plannerFolderTree" :key="row.node.id" class="flex items-center gap-2">
+                                            <button
+                                                class="flex-1 text-left px-3 py-1 rounded border text-xs"
+                                                :style="{ marginLeft: `${row.level * 16}px` }"
+                                                :class="row.node.id===planner.selectedFolderId ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 hover:bg-slate-100'"
+                                                @click="selectFolder(row.node)"
+                                            >
+                                                <span class="block font-semibold">{{ row.node.description || (row.node.start_ip + ' – ' + row.node.end_ip) }}</span>
+                                                <span class="block text-[10px] text-slate-400">
+                                                    <template v-if="row.node.cidr">{{ row.node.cidr }} • </template>
+                                                    {{ row.node.start_ip }} – {{ row.node.end_ip }}
+                                                </span>
+                                            </button>
+                                                <button
+                                                    v-if="canExpandFolder(row.node)"
+                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition"
+                                                    :class="isFolderExpanded(row.node.id) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'"
+                                                    :title="isFolderExpanded(row.node.id) ? 'Collapse folder' : 'Expand folder'"
+                                                    @click.stop="toggleFolder(row.node)"
+                                                >
+                                                    {{ isFolderExpanded(row.node.id) ? '–' : '+' }}
+                                                </button>
+                                                <span
+                                                    v-else
+                                                    class="text-[10px] px-2 py-1 rounded border border-dashed text-slate-300 bg-slate-100 cursor-not-allowed"
+                                                    title="No nested folders available"
+                                                >
+                                                    —
+                                                </span>
+                                            </div>
+                                            <p v-if="!plannerFolderTree.length" class="text-xs text-slate-400 text-center py-2">No parent folders found.</p>
+                                        </div>
+                                    </div>
+                                </aside>
+                                <section class="space-y-4">
+                                    <div class="bg-white border rounded-lg p-3 shadow space-y-2">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <p class="text-sm font-semibold">Views in folder</p>
+                                                <p class="text-xs text-slate-500">{{ plannerFolderBreadcrumb || 'Drive root' }}</p>
+                                            </div>
+                                            <span class="text-xs text-slate-500">{{ currentFolderFiles.length }} views</span>
+                                        </div>
+                                        <div v-if="currentFolderFiles.length" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                            <button
+                                                v-for="view in currentFolderFiles"
+                                                :key="view.id"
+                                                class="border rounded px-3 py-2 text-left text-xs hover:bg-slate-50"
+                                                :class="planner.selectedView && planner.selectedView.id===view.id ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'"
+                                                @click="openPlannerView(view)"
+                                            >
+                                                <p class="font-semibold flex items-center gap-1">
+                                                    <span>{{ plannerFileIcon(view) }}</span>
+                                                    <span>{{ view.description || (view.start_ip + ' – ' + view.end_ip) }}</span>
+                                                </p>
+                                                <p class="text-[11px] text-slate-500">
+                                                    <template v-if="view.cidr">{{ view.cidr }} • </template>
+                                                    {{ view.start_ip }} – {{ view.end_ip }}
+                                                </p>
+                                            </button>
+                                        </div>
+                                        <p v-else class="text-xs text-slate-400">No views in this folder.</p>
+                                    </div>
+                                    <div class="bg-white border rounded-lg p-4 shadow space-y-3">
+                                        <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                                            <span v-if="planner.selectedView">Viewing: {{ planner.selectedView.start_ip }} – {{ planner.selectedView.end_ip }}</span>
+                                            <label class="flex items-center gap-2">
+                                                Search size
+                                                <input type="number" min="1" max="255" class="w-16 border rounded px-2 py-1" v-model.number="planner.searchSize" />
+                                            </label>
+                                            <label class="flex items-center gap-2">
+                                                Center address
+                                                <input type="text" class="border rounded px-2 py-1" v-model="planner.centerAddressInput" placeholder="232.0.0.12" />
+                                            </label>
+                                            <button class="px-3 py-1 border rounded" @click="plannerCenterOnInput" :disabled="!planner.centerAddressInput">Go</button>
+                                            <span v-if="planner.error" class="text-red-600">{{ planner.error }}</span>
+                                        </div>
+                                        <div v-if="planner.isLoading" class="text-xs text-slate-500">Loading view...</div>
+                                        <div v-else-if="planner.detailCells.length" class="border rounded bg-slate-50 p-3">
+                                            <div
+                                                v-for="row in plannerDetailRows"
+                                                :key="row.key"
+                                                class="flex flex-wrap gap-[2px]"
+                                                :style="plannerRowStyle(row)"
+                                            >
+                                                <span
+                                                    v-for="n in row.leading"
+                                                    :key="`lead-${row.key}-${n}`"
+                                                    class="inline-block"
+                                                    style="width:12px;height:12px;visibility:hidden"
+                                                ></span>
+                                                <span
+                                                    v-for="cell in row.cells"
+                                                    :key="cell.index"
+                                                    class="inline-block"
+                                                    :style="plannerCellStyle(cell)"
+                                                    @mouseenter="handlePlannerHover(cell, $event)"
+                                                    @mousemove="handlePlannerHoverMove($event)"
+                                                    @mouseleave="clearPlannerHover"
+                                                    @dblclick="emphasizePlannerCell(cell)"
+                                                ></span>
+                                                <span
+                                                    v-for="n in row.trailing"
+                                                    :key="`trail-${row.key}-${n}`"
+                                                    class="inline-block"
+                                                    style="width:12px;height:12px;visibility:hidden"
+                                                ></span>
+                                            </div>
+                                        </div>
+                                        <p v-else class="text-xs text-slate-400 border rounded bg-slate-50 p-3">Select a view to display the grid.</p>
+                                        <div class="grid gap-3 lg:grid-cols-2 text-xs">
+                                            <div class="bg-slate-50 border rounded p-3 min-h-[80px]">
+                                                <p class="font-semibold mb-1">Hover info</p>
+                                                <p class="text-xs text-slate-500">Hover a cell to see a popup near the pointer.</p>
+                                            </div>
+                                            <div class="bg-slate-50 border rounded p-3 min-h-[80px]">
+                                                <p class="font-semibold mb-1">Usage legend</p>
+                                                <div class="flex items-center gap-3">
+                                                    <span class="inline-flex items-center gap-1 text-emerald-700"><span class="inline-block w-3 h-3 rounded bg-emerald-400/60"></span>FREE</span>
+                                                    <span class="inline-flex items-center gap-1 text-orange-600"><span class="inline-block w-3 h-3 rounded bg-amber-400/50"></span>RESERVED</span>
+                                                    <span class="inline-flex items-center gap-1 text-rose-600"><span class="inline-block w-3 h-3 rounded bg-rose-400/60"></span>USED</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div
+                                            v-if="planner.hoverTooltip.visible && planner.hoverInfo"
+                                            class="fixed z-50 pointer-events-none bg-white/95 border border-slate-300 rounded shadow-lg text-xs text-slate-700 w-56"
+                                            :style="{ top: planner.hoverTooltip.y + 'px', left: planner.hoverTooltip.x + 'px' }"
+                                        >
+                                            <div class="px-3 py-2 border-b">
+                                                <p class="font-semibold">Address</p>
+                                                <p class="font-mono text-[11px]">{{ planner.hoverInfo.address }}</p>
+                                            </div>
+                                            <div class="px-3 py-2 border-b">
+                                                <p class="font-semibold">Status</p>
+                                                <p>{{ planner.hoverInfo.state }}</p>
+                                            </div>
+                                            <div class="px-3 py-2" v-if="planner.hoverInfo.flows && planner.hoverInfo.flows.length">
+                                                <p class="font-semibold mb-1">Flows</p>
+                                                <p
+                                                    v-for="flow in planner.hoverInfo.flows"
+                                                    :key="flow.flow_id"
+                                                    class="truncate"
+                                                >
+                                                    {{ flow.display_name || flow.flow_id }}
+                                                </p>
+                                            </div>
+                                            <div class="px-3 py-2 text-slate-400" v-else>No flow information.</div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                        <div v-else-if="planner.tab==='manage'" class="space-y-4">
+                            <p class="text-xs text-slate-500">Use the shared drive/folder tree to manage addresses directly. Select a target on the left and perform the action on the right.</p>
+                            <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
+                                <aside class="bg-white border rounded-lg p-3 space-y-3 shadow">
+                                    <div>
+                                        <p class="text-sm font-semibold">Drives</p>
+                                        <select
+                                            class="mt-2 w-full border rounded px-3 py-2 text-sm bg-white"
+                                            :value="planner.selectedDriveId || ''"
+                                            @change="handleDriveChange"
+                                        >
+                                            <option v-for="drive in planner.drives" :key="drive.id" :value="drive.id">
+                                                {{ drive.description || (drive.start_ip + ' /8') }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold">Folders</p>
+                                        <div class="mt-2 max-h-[420px] overflow-auto border rounded bg-slate-50 p-2 space-y-1">
+                                            <button
+                                                class="w-full text-left px-3 py-2 rounded border text-xs mb-2"
+                                                :class="planner.selectedFolderId===planner.selectedDriveId ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 hover:bg-slate-100'"
+                                                @click="planner.selectedFolderId = planner.selectedDriveId"
+                                            >
+                                                {{ driveLabel(planner.drives.find(d => d.id === planner.selectedDriveId)) }}
+                                            </button>
+                                            <div v-for="row in plannerFolderTree" :key="row.node.id" class="flex items-center gap-2">
+                                            <button
+                                                class="flex-1 text-left px-3 py-1 rounded border text-xs"
+                                                :style="{ marginLeft: `${row.level * 16}px` }"
+                                                :class="row.node.id===planner.selectedFolderId ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 hover:bg-slate-100'"
+                                                @click="selectFolder(row.node)"
+                                            >
+                                                <span class="block font-semibold">{{ row.node.description || (row.node.start_ip + ' – ' + row.node.end_ip) }}</span>
+                                                <span class="block text-[10px] text-slate-400">
+                                                    <template v-if="row.node.cidr">{{ row.node.cidr }} • </template>
+                                                    {{ row.node.start_ip }} – {{ row.node.end_ip }}
+                                                </span>
+                                            </button>
+                                                <button
+                                                    v-if="canExpandFolder(row.node)"
+                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition"
+                                                    :class="isFolderExpanded(row.node.id) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'"
+                                                    :title="isFolderExpanded(row.node.id) ? 'Collapse folder' : 'Expand folder'"
+                                                    @click.stop="toggleFolder(row.node)"
+                                                >
+                                                    {{ isFolderExpanded(row.node.id) ? '–' : '+' }}
+                                                </button>
+                                                <span
+                                                    v-else
+                                                    class="text-[10px] px-2 py-1 rounded border border-dashed text-slate-300 bg-slate-100 cursor-not-allowed"
+                                                    title="No nested folders available"
+                                                >
+                                                    —
+                                                </span>
+                                            </div>
+                                            <p v-if="!plannerFolderTree.length" class="text-xs text-slate-400 text-center py-2">No parent folders found.</p>
+                                        </div>
+                                    </div>
+                                </aside>
+                                <section class="space-y-4">
+                                    <div class="bg-white border rounded-lg p-4 shadow space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <p class="text-sm font-semibold">Selected Folder</p>
+                                                <p class="text-xs text-slate-500">{{ currentFolderLabel }}</p>
+                                                <p v-if="currentFolderNode" class="text-[11px] text-slate-400">{{ currentFolderNode.start_ip }} – {{ currentFolderNode.end_ip }}</p>
+                                            </div>
+                                            <div class="flex gap-2">
+                                                <button class="px-3 py-1 rounded border text-xs" :class="selectedFolderCanEdit ? 'border-slate-900 text-slate-900' : 'border-slate-200 text-slate-300 cursor-not-allowed'" :disabled="!selectedFolderCanEdit" @click="startFolderEdit">Edit</button>
+                                                <button class="px-3 py-1 rounded border text-xs text-red-600" :class="selectedFolderCanDelete ? 'border-red-300 hover:bg-red-50' : 'border-slate-200 text-slate-300 cursor-not-allowed'" :disabled="!selectedFolderCanDelete" @click="deleteFolder">Delete</button>
+                                            </div>
+                                        </div>
+                                        <div v-if="planner.manageFolderEditing" class="space-y-3 text-xs text-slate-600">
+                                            <div class="flex flex-col gap-1">
+                                                <span>Description</span>
+                                                <input type="text" class="w-full border rounded px-3 py-2 text-sm" v-model="planner.manageFolderForm.description" />
+                                            </div>
+                                            <div class="flex flex-col gap-1">
+                                                <span>Memo</span>
+                                                <textarea class="w-full border rounded px-3 py-2 text-sm resize-y" rows="2" v-model="planner.manageFolderForm.memo"></textarea>
+                                            </div>
+                                            <div class="flex flex-col gap-1">
+                                                <span>Color</span>
+                                                <input type="text" class="w-full border rounded px-3 py-2 text-sm" v-model="planner.manageFolderForm.color" placeholder="#00ffaa" />
+                                            </div>
+                                            <div class="flex gap-2">
+                                                <button class="px-3 py-2 rounded bg-emerald-600 text-white text-xs" @click="saveFolderEdit">Save</button>
+                                                <button class="px-3 py-2 rounded border text-xs" @click="cancelFolderEdit">Cancel</button>
+                                            </div>
+                                        </div>
+                                        <p v-else class="text-xs text-slate-500">Select a folder to edit its metadata or delete it.</p>
+                                    </div>
+                                    <div class="bg-white border rounded-lg p-4 shadow space-y-4">
+                                        <div>
+                                            <h3 class="font-semibold text-sm">Create Folder (Parent)</h3>
+                                            <p class="text-xs text-slate-500">Target parent: {{ manageParentTargetLabel }}</p>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 text-xs text-slate-600 items-end">
+                                            <label class="flex flex-col gap-1">
+                                                <span class="text-[11px] uppercase tracking-wide text-slate-500">Mode</span>
+                                                <select class="border rounded px-3 py-2 text-sm w-48" v-model="planner.parentForm.mode">
+                                                    <option value="cidr">CIDR</option>
+                                                    <option value="manual">Manual range</option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <div class="border border-slate-200 rounded p-3 bg-slate-50 space-y-2 text-xs text-slate-600">
+                                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Address range</p>
+                                            <label v-if="planner.parentForm.mode==='cidr'">
+                                                CIDR
+                                                <input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.parentForm.cidr" placeholder="232.0.0.0/24" />
+                                            </label>
+                                            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <label>Start IP<input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.parentForm.start_ip" placeholder="232.0.0.0" /></label>
+                                                <label>End IP<input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.parentForm.end_ip" placeholder="232.0.255.255" /></label>
+                                            </div>
+                                        </div>
+                                        <div class="border border-slate-200 rounded p-3 space-y-3">
+                                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Metadata</p>
+                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
+                                                <span>Description</span>
+                                                <input type="text" class="border rounded px-3 py-2 text-sm w-full" v-model="planner.parentForm.description" />
+                                            </div>
+                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
+                                                <span>Memo</span>
+                                                <textarea class="border rounded px-3 py-2 text-sm w-full resize-y" rows="2" v-model="planner.parentForm.memo"></textarea>
+                                            </div>
+                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
+                                                <span>Color</span>
+                                                <input type="text" class="border rounded px-3 py-2 text-sm w-full md:w-40" v-model="planner.parentForm.color" placeholder="#00ffaa" />
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-end gap-3">
+                                            <p class="text-xs text-red-600" v-if="planner.bucketFormError">{{ planner.bucketFormError }}</p>
+                                            <button type="button" class="px-4 py-2 rounded bg-slate-900 text-white text-sm" :disabled="planner.bucketSaving" @click="submitParentBucket">
+                                                {{ planner.bucketSaving ? 'Saving...' : 'Create Parent' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border rounded-lg p-4 shadow space-y-4" :class="!canCreateChildView ? 'opacity-60' : ''">
+                                        <div>
+                                            <h3 class="font-semibold text-sm">Create View (Child)</h3>
+                                            <p class="text-xs text-slate-500">
+                                                Target folder: {{ manageChildTargetLabel }}
+                                                <span v-if="!canCreateChildView" class="text-red-500 ms-1">(select a parent folder first)</span>
+                                            </p>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 text-xs text-slate-600 items-end">
+                                            <label class="flex flex-col gap-1">
+                                                <span class="text-[11px] uppercase tracking-wide text-slate-500">Mode</span>
+                                                <select class="border rounded px-3 py-2 text-sm w-48" v-model="planner.childForm.mode" :disabled="!canCreateChildView">
+                                                    <option value="cidr">CIDR</option>
+                                                    <option value="manual">Manual range</option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <div class="border border-slate-200 rounded p-3 bg-slate-50 space-y-2 text-xs text-slate-600">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Address range</p>
+                                            <label v-if="planner.childForm.mode==='cidr'">
+                                                CIDR (≤4096 addresses)
+                                                <input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.childForm.cidr" placeholder="232.0.10.0/26" :disabled="!canCreateChildView" />
+                                            </label>
+                                            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <label>Start IP<input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.childForm.start_ip" placeholder="232.0.10.0" :disabled="!canCreateChildView" /></label>
+                                                <label>End IP<input type="text" class="mt-1 border rounded px-3 py-2 text-sm w-full" v-model="planner.childForm.end_ip" placeholder="232.0.10.63" :disabled="!canCreateChildView" /></label>
+                                            </div>
+                                        </div>
+                                        <div class="border border-slate-200 rounded p-3 space-y-3">
+                                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Metadata</p>
+                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
+                                                <span>Description</span>
+                                                <input type="text" class="border rounded px-3 py-2 text-sm w-full" v-model="planner.childForm.description" placeholder="e.g., STUDIO A" :disabled="!canCreateChildView" />
+                                            </div>
+                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
+                                                <span>Memo</span>
+                                                <textarea class="border rounded px-3 py-2 text-sm w-full resize-y" rows="2" v-model="planner.childForm.memo" :disabled="!canCreateChildView"></textarea>
+                                            </div>
+                                            <div class="flex flex-wrap gap-3 items-center text-xs text-slate-600">
+                                                <div class="flex flex-col gap-1 flex-1">
+                                                    <span>Color</span>
+                                                    <input type="text" class="border rounded px-3 py-2 text-sm w-full md:w-40" v-model="planner.childForm.color" placeholder="#ffcc00" :disabled="!canCreateChildView" />
+                                                </div>
+                                                <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="planner.childForm.is_reserved" class="rounded border-slate-400" :disabled="!canCreateChildView" />Reserved block</label>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-end gap-3">
+                                            <p class="text-xs text-red-600" v-if="planner.bucketFormError">{{ planner.bucketFormError }}</p>
+                                            <button type="button" class="px-4 py-2 rounded bg-emerald-600 text-white text-sm disabled:opacity-60" :disabled="planner.bucketSaving || !canCreateChildView" @click="submitChildBucket">
+                                                {{ planner.bucketSaving ? 'Saving...' : 'Create View' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border rounded-lg p-4 shadow space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <h3 class="font-semibold text-sm">Views in folder</h3>
+                                            <span class="text-xs text-slate-500">{{ currentFolderFiles.length }} views</span>
+                                        </div>
+                                        <div v-if="currentFolderFiles.length" class="space-y-2">
+                                            <article
+                                                v-for="view in currentFolderFiles"
+                                                :key="view.id"
+                                                class="border rounded px-3 py-2 text-xs space-y-2"
+                                            >
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <p class="font-semibold">{{ view.description || (view.start_ip + ' – ' + view.end_ip) }}</p>
+                                                        <p class="text-[11px] text-slate-500">
+                                                            <template v-if="view.cidr">{{ view.cidr }} • </template>
+                                                            {{ view.start_ip }} – {{ view.end_ip }}
+                                                        </p>
+                                                    </div>
+                                                    <div class="flex gap-2">
+                                                        <button class="px-2 py-1 rounded border text-[11px]" @click.stop="startViewEdit(view)">Edit</button>
+                                                        <button class="px-2 py-1 rounded border text-[11px] text-red-600 border-red-200" @click.stop="deleteView(view)">Delete</button>
+                                                    </div>
+                                                </div>
+                                                <div v-if="planner.manageViewEditingId === view.id" class="space-y-2">
+                                                    <label class="text-[11px] text-slate-600">Description<input type="text" class="w-full border rounded px-2 py-1" v-model="planner.manageViewForm.description" /></label>
+                                                    <label class="text-[11px] text-slate-600">Memo<textarea class="w-full border rounded px-2 py-1" rows="2" v-model="planner.manageViewForm.memo"></textarea></label>
+                                                    <label class="text-[11px] text-slate-600">Color<input type="text" class="w-full border rounded px-2 py-1" v-model="planner.manageViewForm.color" /></label>
+                                                    <label class="inline-flex items-center gap-2 text-[11px] text-slate-600"><input type="checkbox" v-model="planner.manageViewForm.is_reserved" class="rounded border-slate-400" />Reserved block</label>
+                                                    <div class="flex gap-2">
+                                                        <button class="px-3 py-1 rounded bg-emerald-600 text-white text-[11px]" @click="saveViewEdit">Save</button>
+                                                        <button class="px-3 py-1 rounded border text-[11px]" @click="cancelViewEdit">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        </div>
+                                        <p v-else class="text-xs text-slate-400">No views in this folder.</p>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                        <div v-else class="space-y-4">
+                            <div class="bg-white border rounded-lg p-4 shadow space-y-3">
+                                <h3 class="font-semibold text-sm">Export Planner Data</h3>
+                                <p class="text-xs text-slate-500">Download the entire folder/view structure as a JSON file.</p>
+                                <button
+                                    class="px-4 py-2 rounded bg-slate-900 text-white text-sm disabled:opacity-60"
+                                    :disabled="planner.backup.exporting"
+                                    @click="exportPlannerBackup"
+                                >
+                                    {{ planner.backup.exporting ? 'Exporting...' : 'Download JSON' }}
+                                </button>
+                            </div>
+                            <div class="bg-white border rounded-lg p-4 shadow space-y-3">
+                                <h3 class="font-semibold text-sm text-red-600">Import Planner Data</h3>
+                                <p class="text-xs text-slate-500">Replacing data will remove all existing folders/views. Use with caution.</p>
+                                <div class="flex flex-wrap items-center gap-3 text-xs">
+                                    <label class="px-3 py-2 border rounded bg-white cursor-pointer">
+                                        Choose JSON
+                                        <input type="file" class="hidden" accept="application/json" @change="handlePlannerBackupFile" ref="plannerBackupInput" />
+                                    </label>
+                                    <span class="text-slate-500">
+                                        {{ planner.backup.file ? planner.backup.file.name : 'No file selected' }}
+                                    </span>
+                                </div>
+                                <button
+                                    class="px-4 py-2 rounded bg-emerald-600 text-white text-sm disabled:opacity-60"
+                                    :disabled="planner.backup.importing || !planner.backup.file"
+                                    @click="importPlannerBackup"
+                                >
+                                    {{ planner.backup.importing ? 'Importing...' : 'Import JSON' }}
+                                </button>
+                                <p class="text-xs text-slate-500">Only administrator accounts can run this operation.</p>
+                            </div>
+                        </div>
             </template>
 
             <template v-else-if="currentView==='flows'">

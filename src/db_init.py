@@ -3,6 +3,7 @@ import psycopg2
 import time
 import bcrypt
 import uuid
+from ipaddress import ip_address
 
 # Database connection settings
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -21,6 +22,36 @@ SETTINGS_DEFAULTS = {
     "flow_lock_role": "admin"
 }
 INIT_SAMPLE_FLOW = os.getenv("INIT_SAMPLE_FLOW", "true").lower() == "true"
+
+
+def _ip_to_int(value: str) -> int:
+    return int(ip_address(value))
+
+
+def ensure_privilege_buckets(cur, conn):
+    cur.execute("SELECT start_int, id FROM address_buckets WHERE kind='tier0';")
+    existing = {row[0]: row[1] for row in cur.fetchall()}
+    updated = False
+    for octet in range(224, 240):
+        start_ip = f"{octet}.0.0.0"
+        end_ip = f"{octet}.255.255.255"
+        start_int = _ip_to_int(start_ip)
+        end_int = _ip_to_int(end_ip)
+        size = end_int - start_int + 1
+        if start_int in existing:
+            continue
+        cur.execute("""
+            INSERT INTO address_buckets
+                (kind, privilege_id, parent_id, start_ip, end_ip, start_int, end_int, size, description, memo, color, cidr, is_reserved, created_at, updated_at)
+            VALUES
+                ('tier0', NULL, NULL, %s::INET, %s::INET, %s, %s, %s, %s, NULL, NULL, %s, FALSE, NOW(), NOW())
+            RETURNING id;
+        """, (start_ip, end_ip, start_int, end_int, size, f"{octet}.0.0.0/8", f"{octet}.0.0.0/8"))
+        bucket_id = cur.fetchone()[0]
+        cur.execute("UPDATE address_buckets SET privilege_id=%s WHERE id=%s;", (bucket_id, bucket_id))
+        updated = True
+    if updated:
+        conn.commit()
 
 
 def init_db(max_retries: int = 10, wait_sec: int = 3):
@@ -158,6 +189,39 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
     cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is05_base_url TEXT;")
     cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
     conn.commit()
+
+    # --------------------------------------------------------
+    # Address buckets (drives/folders/views)
+    # --------------------------------------------------------
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS address_buckets (
+        id SERIAL PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('tier0', 'parent', 'child')),
+        privilege_id INTEGER REFERENCES address_buckets(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES address_buckets(id) ON DELETE CASCADE,
+        start_ip INET NOT NULL,
+        end_ip INET NOT NULL,
+        start_int BIGINT NOT NULL,
+        end_int BIGINT NOT NULL,
+        size INTEGER NOT NULL,
+        description TEXT,
+        memo TEXT,
+        color TEXT,
+        cidr TEXT,
+        is_reserved BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    conn.commit()
+    cur.execute("ALTER TABLE address_buckets ADD COLUMN IF NOT EXISTS cidr TEXT;")
+    conn.commit()
+    cur.execute("CREATE INDEX IF NOT EXISTS address_buckets_kind_idx ON address_buckets(kind);")
+    cur.execute("CREATE INDEX IF NOT EXISTS address_buckets_privilege_idx ON address_buckets(privilege_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS address_buckets_parent_idx ON address_buckets(parent_id);")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS address_buckets_range_idx ON address_buckets(kind, start_int, end_int);")
+    conn.commit()
+    ensure_privilege_buckets(cur, conn)
 
     insert_sample_flow(cur, conn)
     ensure_indexes(cur, conn)

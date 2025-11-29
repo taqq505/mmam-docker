@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import users, flows
 from app.routers import settings as settings_router
 from app.routers import nmos as nmos_router
+from app.routers import address_map as address_map_router
 from app import mqtt_client
 from db_init import init_db
 
@@ -43,6 +44,7 @@ app.include_router(users.router, prefix="/api")
 app.include_router(flows.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(nmos_router.router, prefix="/api")
+app.include_router(address_map_router.router, prefix="/api")
 
 # --------------------------------------------------------
 # Health check
