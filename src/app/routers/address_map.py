@@ -420,6 +420,7 @@ class BucketUpdatePayload(BaseModel):
     memo: Optional[str] = None
     color: Optional[str] = None
     is_reserved: Optional[bool] = None
+    parent_id: Optional[int] = None
 
 
 class AddressBucketBackupEntry(BaseModel):
@@ -831,6 +832,17 @@ def update_bucket(
             raise HTTPException(status_code=400, detail="Only child buckets can toggle reserved flag")
         fields.append("is_reserved = %s")
         values.append(payload.is_reserved)
+    if payload.parent_id is not None:
+        if bucket["kind"] != "parent":
+            raise HTTPException(status_code=400, detail="Only parent buckets can change parent")
+        new_parent = _fetch_bucket(payload.parent_id)
+        if new_parent["kind"] not in ("tier0", "parent"):
+            raise HTTPException(status_code=400, detail="New parent must be tier0 or parent kind")
+        _ensure_range_within(bucket["start_int"], bucket["end_int"],
+                             new_parent["start_int"], new_parent["end_int"],
+                             "new parent range")
+        fields.append("parent_id = %s")
+        values.append(payload.parent_id)
     if not fields:
         raise HTTPException(status_code=400, detail="No updatable fields supplied")
     values.append(bucket_id)

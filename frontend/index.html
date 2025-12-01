@@ -541,8 +541,14 @@
                                             </button>
                                                 <button
                                                     v-if="canExpandFolder(row.node)"
-                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition"
-                                                    :class="isFolderExpanded(row.node.id) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'"
+                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition relative overflow-hidden"
+                                                    :class="[
+                                                        isFolderExpanded(row.node.id)
+                                                            ? 'bg-slate-900 text-white border-slate-900'
+                                                            : hasLoadedChildFolders(row.node.id)
+                                                                ? 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100 folder-hint-border'
+                                                                : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'
+                                                    ]"
                                                     :title="isFolderExpanded(row.node.id) ? 'Collapse folder' : 'Expand folder'"
                                                     @click.stop="toggleFolder(row.node)"
                                                 >
@@ -574,6 +580,15 @@
                                             </div>
                                         </div>
                                         <div v-if="planner.manageFolderEditing" class="space-y-3 text-xs text-slate-600">
+                                            <div v-if="currentFolderNode && currentFolderNode.kind === 'parent' && selectableParentFolders.length > 0" class="flex flex-col gap-1">
+                                                <span>Parent Folder</span>
+                                                <select class="w-full border rounded px-3 py-2 text-sm bg-white" v-model="planner.manageFolderForm.parent_id">
+                                                    <option :value="currentFolderNode.parent_id">{{ currentParentFolderLabel }} (current)</option>
+                                                    <option v-for="folder in selectableParentFolders" :key="folder.id" :value="folder.id">
+                                                        {{ folder.description || folder.cidr || `${folder.start_ip} - ${folder.end_ip}` }}
+                                                    </option>
+                                                </select>
+                                            </div>
                                             <div class="flex flex-col gap-1">
                                                 <span>Description</span>
                                                 <input type="text" class="w-full border rounded px-3 py-2 text-sm" v-model="planner.manageFolderForm.description" />
@@ -1322,7 +1337,7 @@
                                     NMOS Sync
                                 </button>
                                 <span v-if="canApplyNmos(editingFlowId)" class="text-[11px] text-red-600">
-                                    差分: {{ nmosDiffSummary(editingFlowId) }}
+                                    Diff / 差分: {{ nmosDiffSummary(editingFlowId) }}
                                 </span>
                             </div>
                             <div class="flex gap-3">
@@ -1346,7 +1361,7 @@
                         </div>
                     </div>
                     <p v-if="newFlow.locked" class="text-xs text-red-600">
-                        このフローはロック中です。フィールド編集や削除はできませんが、NMOS Check は実行できます（NMOS Sync は解除後に可能）。
+                        This flow is locked. Field editing and deletion are disabled, but NMOS Check is available (NMOS Sync requires unlocking). / このフローはロック中です。フィールド編集や削除はできませんが、NMOS Check は実行できます（NMOS Sync は解除後に可能）。
                     </p>
                     <p v-if="nmos.error && nmos.targetFlowId === editingFlowId" class="text-xs text-red-600">{{ nmos.error }}</p>
                     <fieldset :disabled="newFlow.locked" class="space-y-4 border-0 p-0 m-0">
@@ -1926,7 +1941,7 @@
             >
                 <div class="bg-white rounded shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
                     <div class="flex justify-between items-center px-6 py-4 border-b">
-                        <h3 class="text-lg font-semibold">NMOS反映</h3>
+                        <h3 class="text-lg font-semibold">NMOS Sync / NMOS反映</h3>
                         <button class="text-sm text-slate-500" @click="closeNmosApplyDialog">Close</button>
                     </div>
                     <div class="p-6 space-y-3 text-sm">

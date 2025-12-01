@@ -408,6 +408,7 @@ createApp({
           memo: "",
           color: ""
         },
+        allFoldersCache: [],
         manageViewEditingId: null,
         manageViewForm: {
           description: "",
@@ -528,6 +529,46 @@ createApp({
     },
     selectedFolderCanDelete() {
       return this.selectedFolderCanEdit;
+    },
+    currentParentFolderLabel() {
+      const currentNode = this.currentFolderNode;
+      if (!currentNode || !currentNode.parent_id) return "";
+      if (!this.planner.allFoldersCache || this.planner.allFoldersCache.length === 0) {
+        const parentNode = this.planner.folderNodes[currentNode.parent_id];
+        if (parentNode) {
+          return parentNode.description || parentNode.cidr || `${parentNode.start_ip} - ${parentNode.end_ip}`;
+        }
+        return "";
+      }
+      const parentFolder = this.planner.allFoldersCache.find(f => f.id === currentNode.parent_id);
+      if (parentFolder) {
+        return parentFolder.description || parentFolder.cidr || `${parentFolder.start_ip} - ${parentFolder.end_ip}`;
+      }
+      return "";
+    },
+    selectableParentFolders() {
+      const result = [];
+      const currentNode = this.currentFolderNode;
+      if (!currentNode || currentNode.kind !== "parent") return result;
+      if (!this.planner.allFoldersCache || this.planner.allFoldersCache.length === 0) return result;
+
+      const currentNodeChildren = new Set();
+      const collectDescendants = (folderId) => {
+        currentNodeChildren.add(folderId);
+        const children = this.planner.allFoldersCache.filter(f => f.parent_id === folderId);
+        children.forEach(child => collectDescendants(child.id));
+      };
+      collectDescendants(currentNode.id);
+
+      this.planner.allFoldersCache.forEach(folder => {
+        if ((folder.kind === "tier0" || folder.kind === "parent") &&
+            folder.id !== currentNode.id &&
+            !currentNodeChildren.has(folder.id)) {
+          result.push(folder);
+        }
+      });
+
+      return result;
     },
     plannerFolderTree() {
       const rows = [];
@@ -1328,7 +1369,7 @@ createApp({
     async submitFlow() {
       try {
         if (this.editingFlowId && this.newFlow.locked) {
-          throw new Error("このフローはロックされています。解除してから更新してください。");
+          throw new Error("This flow is locked. Please unlock it before updating / このフローはロックされています。解除してから更新してください。");
         }
         const formData = { ...this.newFlow };
         if (
@@ -1351,7 +1392,7 @@ createApp({
           }
         }
         if (!payload.display_name && !payload.multicast_addr_a && !payload.source_addr_a) {
-          throw new Error("最低でも表示名またはアドレスを入力してください。");
+          throw new Error("Please enter at least display name or address / 最低でも表示名またはアドレスを入力してください。");
         }
         if (this.editingFlowId) {
           const diffs = {};
@@ -1364,7 +1405,7 @@ createApp({
             }
           }
           if (Object.keys(diffs).length === 0) {
-            this.log("変更がありません。");
+            this.log("No changes to save / 変更がありません。");
             return;
           }
           const resp = await fetch(`${this.baseUrl}/api/flows/${this.editingFlowId}`, {
@@ -1927,9 +1968,11 @@ createApp({
     },
     hasLoadedChildFolders(folderId) {
       const node = this.planner.folderNodes[folderId];
-      if (!node || !node.loaded) return false;
-      const children = node.children || [];
-      return children.some(child => child && child.kind !== "child");
+      if (!node) return false;
+      if (node.kind === "tier0" || node.kind === "parent") {
+        return !this.isFolderExpanded(folderId);
+      }
+      return false;
     },
     async toggleFolder(node) {
       if (!node) return;
@@ -1953,6 +1996,12 @@ createApp({
       this.planner.map = null;
       this.resetManageForms();
       this.syncManageTargets();
+      if (this.canExpandFolder(node)) {
+        this.planner.expandedFolders = {
+          ...this.planner.expandedFolders,
+          [node.id]: true
+        };
+      }
     },
     normalizeIp(value) {
       if (!value) return "";
@@ -2784,6 +2833,31 @@ createApp({
       }
       return true;
     },
+    async fetchAllFoldersForParentSelection() {
+      const allFolders = [];
+      const fetchRecursively = async (bucketId) => {
+        try {
+          const resp = await fetch(`${this.baseUrl}/api/address/buckets/${bucketId}/children`, {
+            headers: this.authHeaders()
+          });
+          if (!resp.ok) return;
+          const children = await resp.json();
+          for (const child of children) {
+            if (child.kind === "tier0" || child.kind === "parent") {
+              allFolders.push(child);
+              await fetchRecursively(child.id);
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to fetch children for ${bucketId}:`, err);
+        }
+      };
+      for (const drive of this.planner.drives) {
+        allFolders.push(drive);
+        await fetchRecursively(drive.id);
+      }
+      return allFolders;
+    },
     replaceBucketInTree(updated) {
       if (!updated || !updated.id) return;
       if (this.planner.folderNodes[updated.id]) {
@@ -2799,7 +2873,7 @@ createApp({
         );
       }
     },
-    startFolderEdit() {
+    async startFolderEdit() {
       if (!this.selectedFolderCanEdit) return;
       const node = this.currentFolderNode;
       if (!node) return;
@@ -2807,15 +2881,20 @@ createApp({
       this.planner.manageFolderForm = {
         description: node.description || "",
         memo: node.memo || "",
-        color: node.color || ""
+        color: node.color || "",
+        parent_id: node.parent_id || null
       };
+      if (node.kind === "parent") {
+        this.planner.allFoldersCache = await this.fetchAllFoldersForParentSelection();
+      }
     },
     cancelFolderEdit() {
       this.planner.manageFolderEditing = false;
       this.planner.manageFolderForm = {
         description: "",
         memo: "",
-        color: ""
+        color: "",
+        parent_id: null
       };
     },
     async saveFolderEdit() {
@@ -2827,6 +2906,7 @@ createApp({
       if ((form.description || "") !== (node.description || "")) payload.description = form.description;
       if ((form.memo || "") !== (node.memo || "")) payload.memo = form.memo;
       if ((form.color || "") !== (node.color || "")) payload.color = form.color;
+      if (form.parent_id && form.parent_id !== node.parent_id) payload.parent_id = form.parent_id;
       if (Object.keys(payload).length === 0) {
         this.notify("No changes to save", "error");
         this.planner.manageFolderEditing = false;
@@ -2837,6 +2917,9 @@ createApp({
         this.replaceBucketInTree(updated);
         this.notify("Folder updated");
         this.planner.manageFolderEditing = false;
+        if (payload.parent_id) {
+          await this.selectDrive(this.planner.selectedDriveId);
+        }
       } catch (err) {
         this.notify(err.message, "error");
       }
