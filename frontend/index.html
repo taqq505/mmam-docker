@@ -409,11 +409,12 @@
                                                 <span
                                                     v-for="cell in row.cells"
                                                     :key="cell.index"
-                                                    class="inline-block"
+                                                    class="inline-block cursor-pointer"
                                                     :style="plannerCellStyle(cell)"
                                                     @mouseenter="handlePlannerHover(cell, $event)"
                                                     @mousemove="handlePlannerHoverMove($event)"
                                                     @mouseleave="clearPlannerHover"
+                                                    @click="selectPlannerCell(cell)"
                                                     @dblclick="emphasizePlannerCell(cell)"
                                                 ></span>
                                                 <span
@@ -427,9 +428,39 @@
                                         </div>
                                         <p v-else class="text-xs text-slate-400 border rounded bg-slate-50 p-3">Select a view to display the grid.</p>
                                         <div class="grid gap-3 lg:grid-cols-2 text-xs">
-                                            <div class="bg-slate-50 border rounded p-3 min-h-[80px]">
-                                                <p class="font-semibold mb-1">Hover info</p>
-                                                <p class="text-xs text-slate-500">Hover a cell to see a popup near the pointer.</p>
+                                            <div class="bg-slate-50 border rounded p-3">
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <p class="font-semibold">Cell Detail</p>
+                                                    <button v-if="planner.selectedCell" @click="clearSelectedCell" class="text-[10px] text-slate-500 underline">Clear</button>
+                                                </div>
+                                                <div v-if="planner.selectedCell" class="space-y-2 text-xs">
+                                                    <div class="border-b pb-2">
+                                                        <p class="text-slate-500">Address</p>
+                                                        <div class="flex items-center gap-2">
+                                                            <p class="font-mono text-sm font-semibold">{{ planner.selectedCell.address }}</p>
+                                                            <button @click="copyToClipboard(planner.selectedCell.address)" class="text-[11px] px-2 py-1 border rounded text-slate-600 hover:bg-slate-100">Copy</button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="border-b pb-2">
+                                                        <p class="text-slate-500">Status</p>
+                                                        <p class="font-semibold">{{ planner.selectedCell.state }}</p>
+                                                    </div>
+                                                    <div v-if="planner.selectedCell.flows && planner.selectedCell.flows.length" class="space-y-1">
+                                                        <p class="text-slate-500 font-semibold">Flows ({{ planner.selectedCell.flows.length }})</p>
+                                                        <div v-for="flow in planner.selectedCell.flows" :key="flow.flow_id" class="border rounded p-2 bg-white">
+                                                            <div class="flex items-start justify-between gap-2">
+                                                                <div class="flex-1 min-w-0">
+                                                                    <p class="font-semibold text-[11px] truncate">{{ flow.display_name || flow.flow_id }}</p>
+                                                                    <p class="text-[10px] text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
+                                                                    <p v-if="flow.nmos_node_label" class="text-[10px] text-slate-400 truncate">{{ flow.nmos_node_label }}</p>
+                                                                </div>
+                                                                <button @click="showFlow(flow.flow_id)" class="text-xs text-slate-600 underline whitespace-nowrap">Details</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <p v-else class="text-slate-400 text-[11px]">No flows using this address.</p>
+                                                </div>
+                                                <p v-else class="text-slate-400 text-[11px]">Click a cell to see details. Hover for quick info.</p>
                                             </div>
                                             <div class="bg-slate-50 border rounded p-3 min-h-[80px]">
                                                 <p class="font-semibold mb-1">Usage legend</p>
@@ -801,11 +832,12 @@
                                                 <span
                                                     v-for="cell in row.cells"
                                                     :key="`easy-cell-${cell.index}`"
-                                                    class="inline-block"
+                                                    class="inline-block cursor-pointer"
                                                     :style="plannerCellStyle(cell, 'easy')"
                                                     @mouseenter="handlePlannerHover(cell, $event, 'easy')"
                                                     @mousemove="handlePlannerHoverMove($event)"
                                                     @mouseleave="clearPlannerHover"
+                                                    @click="selectPlannerCell(cell, 'easy')"
                                                     @dblclick="emphasizePlannerCell(cell, 'easy')"
                                                 ></span>
                                                 <span
@@ -818,6 +850,40 @@
                                         </div>
                                     </div>
                                     <p v-else class="text-xs text-slate-400 border rounded bg-slate-50 p-3">No temporary grid loaded.</p>
+                                    <div class="bg-slate-50 border rounded p-3 mt-3">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <p class="font-semibold text-xs">Cell Detail</p>
+                                            <button v-if="planner.selectedCell" @click="clearSelectedCell" class="text-[10px] text-slate-500 underline">Clear</button>
+                                        </div>
+                                        <div v-if="planner.selectedCell" class="space-y-2 text-xs">
+                                            <div class="border-b pb-2">
+                                                <p class="text-slate-500">Address</p>
+                                                <div class="flex items-center gap-2">
+                                                    <p class="font-mono text-sm font-semibold">{{ planner.selectedCell.address }}</p>
+                                                    <button @click="copyToClipboard(planner.selectedCell.address)" class="text-[11px] px-2 py-1 border rounded text-slate-600 hover:bg-slate-100">Copy</button>
+                                                </div>
+                                            </div>
+                                            <div class="border-b pb-2">
+                                                <p class="text-slate-500">Status</p>
+                                                <p class="font-semibold">{{ planner.selectedCell.state }}</p>
+                                            </div>
+                                            <div v-if="planner.selectedCell.flows && planner.selectedCell.flows.length" class="space-y-1">
+                                                <p class="text-slate-500 font-semibold">Flows ({{ planner.selectedCell.flows.length }})</p>
+                                                <div v-for="flow in planner.selectedCell.flows" :key="flow.flow_id" class="border rounded p-2 bg-white">
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <div class="flex-1 min-w-0">
+                                                            <p class="font-semibold text-[11px] truncate">{{ flow.display_name || flow.flow_id }}</p>
+                                                            <p class="text-[10px] text-slate-500">{{ flow.flow_status }} / {{ flow.availability }}</p>
+                                                            <p v-if="flow.nmos_node_label" class="text-[10px] text-slate-400 truncate">{{ flow.nmos_node_label }}</p>
+                                                        </div>
+                                                        <button @click="showFlow(flow.flow_id)" class="text-xs text-slate-600 underline whitespace-nowrap">Details</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <p v-else class="text-slate-400 text-[11px]">No flows using this address.</p>
+                                        </div>
+                                        <p v-else class="text-slate-400 text-[11px]">Click a cell to see details. Hover for quick info.</p>
+                                    </div>
                                     <div
                                         v-if="planner.hoverTooltip.visible && planner.hoverInfo"
                                         class="fixed z-50 pointer-events-none bg-white/95 border border-slate-300 rounded shadow-lg text-xs text-slate-700 w-56"

@@ -357,6 +357,9 @@ createApp({
         isLoading: false,
         error: "",
         tab: "view",
+        selectedCell: null,
+        selectedCellIndex: null,
+        selectedContext: null,
         easyView: {
           mode: "cidr",
           cidr: "",
@@ -2397,6 +2400,11 @@ createApp({
         style.boxShadow = `0 0 6px 2px ${glowColor}`;
         style.zIndex = 1;
       }
+      if (this.planner.selectedCellIndex === cell.index && this.planner.selectedContext === context) {
+        style.boxShadow = "0 0 8px 3px rgba(59,130,246,0.9)";
+        style.border = "1px solid rgba(59,130,246,1)";
+        style.zIndex = 2;
+      }
       return style;
     },
     handlePlannerHover(cell, payload, context = "explorer") {
@@ -2442,6 +2450,25 @@ createApp({
         return;
       }
       this.showFlow(targetFlow.flow_id);
+    },
+    selectPlannerCell(cell, context = "explorer") {
+      if (!cell) return;
+      const lookup = this.plannerUsedLookupForContext(context);
+      const detail = lookup ? lookup[cell.index] : null;
+      const selectedCell = {
+        address: cell.address,
+        state: cell.state,
+        index: cell.index,
+        flows: detail ? detail.flows : []
+      };
+      this.planner.selectedCell = selectedCell;
+      this.planner.selectedCellIndex = cell.index;
+      this.planner.selectedContext = context;
+    },
+    clearSelectedCell() {
+      this.planner.selectedCell = null;
+      this.planner.selectedCellIndex = null;
+      this.planner.selectedContext = null;
     },
     handlePlannerHoverMove(event) {
       if (!this.planner.hoverTooltip.visible) return;
