@@ -833,11 +833,15 @@ def update_bucket(
         fields.append("is_reserved = %s")
         values.append(payload.is_reserved)
     if payload.parent_id is not None:
-        if bucket["kind"] != "parent":
-            raise HTTPException(status_code=400, detail="Only parent buckets can change parent")
+        if bucket["kind"] not in ("parent", "child"):
+            raise HTTPException(status_code=400, detail="Only parent and child buckets can change parent")
         new_parent = _fetch_bucket(payload.parent_id)
-        if new_parent["kind"] not in ("tier0", "parent"):
-            raise HTTPException(status_code=400, detail="New parent must be tier0 or parent kind")
+        if bucket["kind"] == "parent":
+            if new_parent["kind"] not in ("tier0", "parent"):
+                raise HTTPException(status_code=400, detail="Parent bucket's new parent must be tier0 or parent kind")
+        elif bucket["kind"] == "child":
+            if new_parent["kind"] != "parent":
+                raise HTTPException(status_code=400, detail="Child bucket's new parent must be parent kind")
         _ensure_range_within(bucket["start_int"], bucket["end_int"],
                              new_parent["start_int"], new_parent["end_int"],
                              "new parent range")

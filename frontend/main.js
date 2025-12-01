@@ -570,6 +570,40 @@ createApp({
 
       return result;
     },
+    currentEditingView() {
+      if (!this.planner.manageViewEditingId) return null;
+      return this.currentFolderFiles.find(v => v.id === this.planner.manageViewEditingId);
+    },
+    currentViewParentFolderLabel() {
+      const view = this.currentEditingView;
+      if (!view || !view.parent_id) return "";
+      if (!this.planner.allFoldersCache || this.planner.allFoldersCache.length === 0) {
+        const parentNode = this.planner.folderNodes[view.parent_id];
+        if (parentNode) {
+          return parentNode.description || parentNode.cidr || `${parentNode.start_ip} - ${parentNode.end_ip}`;
+        }
+        return "";
+      }
+      const parentFolder = this.planner.allFoldersCache.find(f => f.id === view.parent_id);
+      if (parentFolder) {
+        return parentFolder.description || parentFolder.cidr || `${parentFolder.start_ip} - ${parentFolder.end_ip}`;
+      }
+      return "";
+    },
+    selectableParentFoldersForView() {
+      const result = [];
+      const view = this.currentEditingView;
+      if (!view) return result;
+      if (!this.planner.allFoldersCache || this.planner.allFoldersCache.length === 0) return result;
+
+      this.planner.allFoldersCache.forEach(folder => {
+        if (folder.kind === "parent" && folder.id !== view.parent_id) {
+          result.push(folder);
+        }
+      });
+
+      return result;
+    },
     plannerFolderTree() {
       const rows = [];
       const traverse = (folderId, level = 0) => {
@@ -861,6 +895,13 @@ createApp({
       this.log("Logged out");
       this.notify("Logged out", "success", 1500);
     },
+    handleTokenExpired() {
+      this.token = null;
+      this.currentUser = null;
+      this.teardownRealtime();
+      this.currentView = "dashboard";
+      this.notify("Session expired. Please log in again / セッションが期限切れです。再度ログインしてください。", "error", 5000);
+    },
     async fetchMe() {
       if (!this.token) return;
       try {
@@ -878,6 +919,17 @@ createApp({
       const headers = { "Content-Type": "application/json" };
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
       return headers;
+    },
+    async handleFetchResponse(resp) {
+      if (resp.status === 401) {
+        const text = await resp.text();
+        if (text.includes("Token expired") || text.includes("トークンの有効期限切れ")) {
+          this.handleTokenExpired();
+          throw new Error("Session expired");
+        }
+        throw new Error(text || "Unauthorized");
+      }
+      return resp;
     },
     async fetchRealtimeConfig() {
       try {
@@ -2816,6 +2868,7 @@ createApp({
         headers: this.authHeaders(),
         body: JSON.stringify(payload)
       });
+      await this.handleFetchResponse(resp);
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Failed to update bucket: ${resp.status} ${text}`);
@@ -2827,6 +2880,7 @@ createApp({
         method: "DELETE",
         headers: this.authHeaders()
       });
+      await this.handleFetchResponse(resp);
       if (!resp.ok) {
         const text = await resp.text();
         throw new Error(`Failed to delete bucket: ${resp.status} ${text}`);
@@ -2944,15 +2998,17 @@ createApp({
         this.notify(err.message, "error");
       }
     },
-    startViewEdit(view) {
+    async startViewEdit(view) {
       if (!view) return;
       this.planner.manageViewEditingId = view.id;
       this.planner.manageViewForm = {
         description: view.description || "",
         memo: view.memo || "",
         color: view.color || "",
-        is_reserved: Boolean(view.is_reserved)
+        is_reserved: Boolean(view.is_reserved),
+        parent_id: view.parent_id || null
       };
+      this.planner.allFoldersCache = await this.fetchAllFoldersForParentSelection();
     },
     cancelViewEdit() {
       this.planner.manageViewEditingId = null;
@@ -2960,7 +3016,8 @@ createApp({
         description: "",
         memo: "",
         color: "",
-        is_reserved: false
+        is_reserved: false,
+        parent_id: null
       };
     },
     async saveViewEdit() {
@@ -2977,6 +3034,7 @@ createApp({
       if ((form.memo || "") !== (view.memo || "")) payload.memo = form.memo;
       if ((form.color || "") !== (view.color || "")) payload.color = form.color;
       if (Boolean(form.is_reserved) !== Boolean(view.is_reserved)) payload.is_reserved = form.is_reserved;
+      if (form.parent_id && form.parent_id !== view.parent_id) payload.parent_id = form.parent_id;
       if (Object.keys(payload).length === 0) {
         this.notify("No changes to save", "error");
         return;
@@ -2987,6 +3045,9 @@ createApp({
         await this.refreshCurrentFolderChildren();
         this.notify("View updated");
         this.cancelViewEdit();
+        if (payload.parent_id) {
+          await this.selectDrive(this.planner.selectedDriveId);
+        }
       } catch (err) {
         this.notify(err.message, "error");
       }

@@ -597,10 +597,6 @@
                                                 <span>Memo</span>
                                                 <textarea class="w-full border rounded px-3 py-2 text-sm resize-y" rows="2" v-model="planner.manageFolderForm.memo"></textarea>
                                             </div>
-                                            <div class="flex flex-col gap-1">
-                                                <span>Color</span>
-                                                <input type="text" class="w-full border rounded px-3 py-2 text-sm" v-model="planner.manageFolderForm.color" placeholder="#00ffaa" />
-                                            </div>
                                             <div class="flex gap-2">
                                                 <button class="px-3 py-2 rounded bg-emerald-600 text-white text-xs" @click="saveFolderEdit">Save</button>
                                                 <button class="px-3 py-2 rounded border text-xs" @click="cancelFolderEdit">Cancel</button>
@@ -642,10 +638,6 @@
                                             <div class="flex flex-col gap-1 text-xs text-slate-600">
                                                 <span>Memo</span>
                                                 <textarea class="border rounded px-3 py-2 text-sm w-full resize-y" rows="2" v-model="planner.parentForm.memo"></textarea>
-                                            </div>
-                                            <div class="flex flex-col gap-1 text-xs text-slate-600">
-                                                <span>Color</span>
-                                                <input type="text" class="border rounded px-3 py-2 text-sm w-full md:w-40" v-model="planner.parentForm.color" placeholder="#00ffaa" />
                                             </div>
                                         </div>
                                         <div class="flex items-center justify-end gap-3">
@@ -693,11 +685,7 @@
                                                 <span>Memo</span>
                                                 <textarea class="border rounded px-3 py-2 text-sm w-full resize-y" rows="2" v-model="planner.childForm.memo" :disabled="!canCreateChildView"></textarea>
                                             </div>
-                                            <div class="flex flex-wrap gap-3 items-center text-xs text-slate-600">
-                                                <div class="flex flex-col gap-1 flex-1">
-                                                    <span>Color</span>
-                                                    <input type="text" class="border rounded px-3 py-2 text-sm w-full md:w-40" v-model="planner.childForm.color" placeholder="#ffcc00" :disabled="!canCreateChildView" />
-                                                </div>
+                                            <div class="flex items-center gap-3 text-xs text-slate-600">
                                                 <label class="inline-flex items-center gap-2"><input type="checkbox" v-model="planner.childForm.is_reserved" class="rounded border-slate-400" :disabled="!canCreateChildView" />Reserved block</label>
                                             </div>
                                         </div>
@@ -733,9 +721,17 @@
                                                     </div>
                                                 </div>
                                                 <div v-if="planner.manageViewEditingId === view.id" class="space-y-2">
+                                                    <div v-if="selectableParentFoldersForView.length > 0" class="flex flex-col gap-1">
+                                                        <span class="text-[11px] text-slate-600">Parent Folder</span>
+                                                        <select class="w-full border rounded px-2 py-1 text-[11px] bg-white" v-model="planner.manageViewForm.parent_id">
+                                                            <option :value="view.parent_id">{{ currentViewParentFolderLabel }} (current)</option>
+                                                            <option v-for="folder in selectableParentFoldersForView" :key="folder.id" :value="folder.id">
+                                                                {{ folder.description || folder.cidr || `${folder.start_ip} - ${folder.end_ip}` }}
+                                                            </option>
+                                                        </select>
+                                                    </div>
                                                     <label class="text-[11px] text-slate-600">Description<input type="text" class="w-full border rounded px-2 py-1" v-model="planner.manageViewForm.description" /></label>
                                                     <label class="text-[11px] text-slate-600">Memo<textarea class="w-full border rounded px-2 py-1" rows="2" v-model="planner.manageViewForm.memo"></textarea></label>
-                                                    <label class="text-[11px] text-slate-600">Color<input type="text" class="w-full border rounded px-2 py-1" v-model="planner.manageViewForm.color" /></label>
                                                     <label class="inline-flex items-center gap-2 text-[11px] text-slate-600"><input type="checkbox" v-model="planner.manageViewForm.is_reserved" class="rounded border-slate-400" />Reserved block</label>
                                                     <div class="flex gap-2">
                                                         <button class="px-3 py-1 rounded bg-emerald-600 text-white text-[11px]" @click="saveViewEdit">Save</button>
@@ -1938,8 +1934,9 @@
             <div
                 v-if="nmos.applyVisible && nmos.result"
                 class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+                @click="closeNmosApplyDialog"
             >
-                <div class="bg-white rounded shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
+                <div class="bg-white rounded shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto" @click.stop>
                     <div class="flex justify-between items-center px-6 py-4 border-b">
                         <h3 class="text-lg font-semibold">NMOS Sync / NMOS反映</h3>
                         <button class="text-sm text-slate-500" @click="closeNmosApplyDialog">Close</button>
@@ -1982,8 +1979,8 @@
                 </div>
             </div>
 
-            <div v-if="detailFlow" class="fixed inset-0 bg-black/60 flex items-center justify-center z-40">
-                <div class="bg-white rounded shadow-lg w-full max-w-4xl max-h-[80vh] overflow-auto">
+            <div v-if="detailFlow" class="fixed inset-0 bg-black/60 flex items-center justify-center z-40" @click="detailFlow = null">
+                <div class="bg-white rounded shadow-lg w-full max-w-4xl max-h-[80vh] overflow-auto" @click.stop>
                     <div class="flex justify-between items-center px-6 py-4 border-b">
                         <div>
                             <div class="flex items-center gap-2">
