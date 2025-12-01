@@ -322,7 +322,13 @@ createApp({
         loading: false,
         importing: false,
         error: "",
-        selections: {}
+        selections: {},
+        detectingIS05: false,
+        is05DetectionModal: {
+          visible: false,
+          options: [],
+          selected: null
+        }
       },
       nmos: {
         checking: false,
@@ -1770,6 +1776,56 @@ createApp({
     },
     copyIs04ToIs05() {
       this.wizard.is05BaseUrl = this.wizard.is04BaseUrl;
+    },
+    async detectIS05() {
+      if (!this.wizard.is04BaseUrl) {
+        this.notify("Please enter IS-04 Base URL first / IS-04のベースURLを先に入力してください", "error");
+        return;
+      }
+      this.wizard.detectingIS05 = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/nmos/detect-is05`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify({
+            is04_base_url: this.wizard.is04BaseUrl,
+            is04_version: this.wizard.is04Version,
+            timeout: 5
+          })
+        });
+        await this.handleFetchResponse(resp);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to detect IS-05: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        if (data.options && data.options.length > 0) {
+          this.wizard.is05DetectionModal.options = data.options;
+          this.wizard.is05DetectionModal.selected = 0;
+          this.wizard.is05DetectionModal.visible = true;
+        } else {
+          this.notify("No IS-05 endpoints found in devices / デバイスにIS-05エンドポイントが見つかりませんでした", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        this.notify(err.message, "error");
+      } finally {
+        this.wizard.detectingIS05 = false;
+      }
+    },
+    applyDetectedIS05() {
+      const selectedIndex = this.wizard.is05DetectionModal.selected;
+      if (selectedIndex === null) return;
+      const option = this.wizard.is05DetectionModal.options[selectedIndex];
+      if (option) {
+        this.wizard.is05BaseUrl = option.is05_url;
+        // Set IS-05 version if detected
+        if (option.version && option.version !== "unknown" && this.wizard.is05Versions.includes(option.version)) {
+          this.wizard.is05Version = option.version;
+        }
+        this.notify(`IS-05 endpoint set to ${option.device_label}`);
+      }
+      this.wizard.is05DetectionModal.visible = false;
     },
     async fetchNmosFlows() {
       if (!this.wizard.is04BaseUrl || !this.wizard.is05BaseUrl) {

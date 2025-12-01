@@ -24,6 +24,12 @@ class DiscoverRequest(BaseModel):
     timeout: int = 5
 
 
+class DetectIS05Request(BaseModel):
+    is04_base_url: str
+    is04_version: str = DEFAULT_IS04_VERSION
+    timeout: int = 5
+
+
 @router.post("/nmos/discover")
 def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("editor", "admin"))):
     is04_base = normalize_base_url(payload.is04_base_url)
@@ -131,4 +137,106 @@ def discover_nmos_flows(payload: DiscoverRequest, user=Depends(require_roles("ed
         "is05_version": conn_version,
         "node": node_info,
         "flows": results
+    }
+
+
+@router.post("/nmos/detect-is05")
+def detect_is05_endpoints(payload: DetectIS05Request, user=Depends(require_roles("editor", "admin"))):
+    """
+    Detect IS-05 Connection API endpoints from IS-04 devices.
+    Returns a list of available IS-05 endpoints with device information.
+    """
+    is04_base = normalize_base_url(payload.is04_base_url)
+    version = payload.is04_version.strip() or DEFAULT_IS04_VERSION
+    node_prefix = f"node/{version}/"
+    devices_url = urljoin(is04_base, node_prefix + "devices")
+
+    try:
+        devices = fetch_json(devices_url, payload.timeout)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch devices from IS-04: {str(e)}")
+
+    if not isinstance(devices, list):
+        raise HTTPException(status_code=400, detail="Invalid devices response from IS-04")
+
+    options = []
+    seen_urls = set()
+
+    for device in devices:
+        if not isinstance(device, dict):
+            continue
+
+        device_id = device.get("id", "")
+        device_label = device.get("label", device_id)
+        controls = device.get("controls", [])
+
+        if not isinstance(controls, list):
+            continue
+
+        # Find IS-05 (Connection API) controls
+        is05_controls = []
+        for control in controls:
+            if not isinstance(control, dict):
+                continue
+            ctrl_type = control.get("type", "")
+            href = control.get("href", "")
+            # Check if this is a Connection API control
+            if "urn:x-nmos:control:sr-ctrl" in ctrl_type and href:
+                # Extract version from href if present
+                version_match = None
+                if "/v1." in href:
+                    # Extract version like v1.0, v1.1, v1.2
+                    import re
+                    match = re.search(r'/v(\d+\.\d+)', href)
+                    if match:
+                        version_match = f"v{match.group(1)}"
+
+                is05_controls.append({
+                    "href": href,
+                    "version": version_match
+                })
+
+        if not is05_controls:
+            continue
+
+        # Get the latest version (sort by version number)
+        if len(is05_controls) > 1:
+            # Sort by version, latest first
+            def version_key(ctrl):
+                v = ctrl.get("version")
+                if v and v.startswith("v"):
+                    try:
+                        return float(v[1:])
+                    except:
+                        return 0.0
+                return 0.0
+
+            is05_controls.sort(key=version_key, reverse=True)
+
+        # Use the latest (first after sorting)
+        latest_control = is05_controls[0]
+        is05_url = latest_control["href"].rstrip("/")
+
+        # Remove version suffix and API endpoint suffix (like /connection) from URL to get base URL
+        import re
+        base_url = re.sub(r'/v\d+\.\d+/?$', '', is05_url)
+        base_url = re.sub(r'/connection/?$', '', base_url)
+        if not base_url:
+            base_url = is05_url
+
+        # Avoid duplicates
+        if base_url in seen_urls:
+            continue
+        seen_urls.add(base_url)
+
+        options.append({
+            "device_id": device_id,
+            "device_label": device_label,
+            "is05_url": base_url,
+            "version": latest_control.get("version") or "unknown"
+        })
+
+    return {
+        "options": options,
+        "count": len(options)
     }

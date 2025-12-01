@@ -1426,20 +1426,32 @@
                             {{ wizard.node ? 'Node: ' + (wizard.node.label || wizard.node.id || '-') : '' }}
                         </span>
                     </div>
+                    <div class="border-l-2 border-slate-300 pl-3 py-1 text-xs text-slate-600">
+                        <p class="mb-1"><strong>Required:</strong> IS-04 Base URL, IS-04 Version, IS-05 Base URL, IS-05 Version / <strong>必須:</strong> IS-04 Base URL, IS-04 Version, IS-05 Base URL, IS-05 Version</p>
+                        <p class="mb-1"><strong>Auto Detect:</strong> Click blinking button to auto-detect IS-05 (optional). Manual input is also available. / <strong>自動検出:</strong> ブリンクボタンでIS-05を自動検出可（任意）。手動入力も可。</p>
+                        <p class="text-slate-500 text-[11px]">Note: RDS integration for IS-04 auto-fill is planned. / 注: RDS連携でIS-04自動入力を予定。</p>
+                    </div>
+                    <div class="grid grid-cols-1 gap-3 text-sm">
+                        <div class="flex gap-2 items-end">
+                            <label class="text-slate-600 flex-1">
+                                IS-04 Base URL (up to /x-nmos/) <span class="text-red-500">*</span>
+                                <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is04BaseUrl" placeholder="http://example:8080/x-nmos/" />
+                            </label>
+                            <span class="text-lg leading-none mb-2">⇒</span>
+                            <div class="text-slate-600">
+                                <div class="mb-1 text-xs opacity-0">placeholder</div>
+                                <button type="button" class="px-4 py-2 text-xs border rounded whitespace-pre-line leading-tight hover:bg-slate-100 auto-detect-blink" @click="detectIS05" :disabled="wizard.detectingIS05">{{ wizard.detectingIS05 ? 'Detecting...' : 'IS-05\nAuto Detect' }}</button>
+                            </div>
+                            <span class="text-lg leading-none mb-2">⇒</span>
+                            <label class="text-slate-600 flex-1">
+                                IS-05 Base URL (up to /x-nmos/) <span class="text-red-500">*</span>
+                                <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is05BaseUrl" placeholder="http://example:8080/x-nmos/" />
+                            </label>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                         <label class="text-slate-600">
-                            IS-04 Base URL (up to /x-nmos/)
-                            <div class="flex gap-2">
-                                <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is04BaseUrl" placeholder="http://example:8080/x-nmos/" />
-                                <button type="button" class="px-2 py-1 mt-1 text-xs border rounded" @click="copyIs04ToIs05">Copy →</button>
-                            </div>
-                        </label>
-                        <label class="text-slate-600">
-                            IS-05 Base URL (up to /x-nmos/)
-                            <input type="text" class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is05BaseUrl" placeholder="http://example:8080/x-nmos/" />
-                        </label>
-                        <label class="text-slate-600">
-                            IS-04 Version
+                            IS-04 Version <span class="text-red-500">*</span>
                             <select class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is04Version">
                                 <option v-for="version in wizard.is04Versions" :key="version" :value="version">
                                     {{ version }}
@@ -1447,7 +1459,7 @@
                             </select>
                         </label>
                         <label class="text-slate-600">
-                            IS-05 Version
+                            IS-05 Version <span class="text-red-500">*</span>
                             <select class="w-full border rounded px-3 py-2 mt-1" v-model="wizard.is05Version">
                                 <option v-for="version in wizard.is05Versions" :key="version" :value="version">
                                     {{ version }}
@@ -1931,6 +1943,61 @@
                 </section>
             </template>
 
+            <!-- IS-05 Detection Modal -->
+            <div
+                v-if="wizard.is05DetectionModal.visible"
+                class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+                @click="wizard.is05DetectionModal.visible = false"
+            >
+                <div class="bg-white rounded shadow-lg w-full max-w-2xl max-h-[70vh] overflow-auto" @click.stop>
+                    <div class="flex justify-between items-center px-6 py-4 border-b">
+                        <h3 class="text-lg font-semibold">Select IS-05 Connection API</h3>
+                        <button class="text-sm text-slate-500" @click="wizard.is05DetectionModal.visible = false">Close</button>
+                    </div>
+                    <div class="p-6">
+                        <p v-if="wizard.is05DetectionModal.options.length === 0" class="text-sm text-slate-500 text-center py-8">
+                            No IS-05 endpoints found in devices.
+                        </p>
+                        <div v-else class="space-y-3">
+                            <label
+                                v-for="(option, index) in wizard.is05DetectionModal.options"
+                                :key="index"
+                                class="flex items-start gap-3 p-3 border rounded cursor-pointer hover:bg-slate-50"
+                                :class="wizard.is05DetectionModal.selected === index && 'border-emerald-500 bg-emerald-50'"
+                            >
+                                <input
+                                    type="radio"
+                                    :value="index"
+                                    v-model="wizard.is05DetectionModal.selected"
+                                    class="mt-1"
+                                />
+                                <div class="flex-1">
+                                    <p class="font-semibold text-sm">{{ option.device_label }}</p>
+                                    <p class="text-xs text-slate-500">Device ID: {{ option.device_id }}</p>
+                                    <p class="text-xs text-emerald-600 font-mono mt-1">{{ option.is05_url }}</p>
+                                    <p class="text-[11px] text-slate-400">Version: {{ option.version }}</p>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="flex justify-end gap-3 mt-6">
+                            <button
+                                class="px-4 py-2 border rounded text-sm"
+                                @click="wizard.is05DetectionModal.visible = false"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                class="px-4 py-2 rounded bg-emerald-600 text-white text-sm disabled:opacity-50"
+                                :disabled="wizard.is05DetectionModal.selected === null"
+                                @click="applyDetectedIS05"
+                            >
+                                Use Selected
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div
                 v-if="nmos.applyVisible && nmos.result"
                 class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
@@ -2066,6 +2133,14 @@
         }
         .folder-hint-border {
             animation: folderPulse 2.2s ease-in-out infinite;
+        }
+        @keyframes buttonGlowBlink {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .auto-detect-blink {
+            animation: buttonGlowBlink 2.5s ease-in-out infinite;
         }
     </style>
 </body>
