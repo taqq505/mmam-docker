@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MMAM Control Panel</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -22,9 +23,21 @@
 <body class="bg-slate-100 text-slate-900 font-sans">
     <div id="app" class="min-h-screen flex bg-slate-100 relative">
         <aside class="w-64 bg-slate-900 text-white flex flex-col">
-            <div class="px-6 py-5 border-b border-white/10">
-                <h1 class="text-xl font-semibold">MMAM</h1>
-                <p class="text-xs text-slate-300">media multicast address manager</p>
+            <div class="px-6 py-5 border-b border-white/10 flex items-center gap-3">
+                <svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0">
+                    <rect x="4" y="4" width="56" height="56" rx="14" fill="#1e293b"/>
+                    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="32" cy="28" r="8" stroke="#60a5fa" stroke-width="3"/>
+                        <path d="M20 44 A16 16 0 0 1 44 44" stroke="#3b82f6" stroke-width="3"/>
+                        <circle cx="20" cy="44" r="4" fill="#1e293b" stroke="#60a5fa" stroke-width="3"/>
+                        <circle cx="32" cy="44" r="4" fill="#1e293b" stroke="#60a5fa" stroke-width="3"/>
+                        <circle cx="44" cy="44" r="4" fill="#1e293b" stroke="#60a5fa" stroke-width="3"/>
+                    </g>
+                </svg>
+                <div>
+                    <h1 class="text-xl font-semibold">MMAM</h1>
+                    <p class="text-xs text-slate-300">media multicast address manager</p>
+                </div>
             </div>
             <nav class="flex-1 px-4 py-6 space-y-2 text-sm">
                 <button class="w-full text-left px-3 py-2 rounded hover:bg-white/10" :class="currentView==='dashboard' && 'bg-white/20'" @click="navigate('dashboard')">
@@ -126,7 +139,7 @@
             </header>
         <main class="flex-1 p-6 overflow-auto space-y-6">
             <template v-if="currentView==='dashboard'">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <section class="bg-white p-4 rounded shadow-lg space-y-3">
                     <h2 class="font-semibold text-lg">Summary</h2>
                     <div class="grid grid-cols-2 gap-3 text-center">
@@ -223,13 +236,11 @@
                         <p v-if="flows.length === 0" class="text-sm text-slate-500">No flows found.</p>
                     </div>
                 </section>
+                <section class="bg-white rounded shadow-lg p-4">
+                    <h2 class="font-semibold text-lg mb-2">Debug Console</h2>
+                    <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 max-h-60 overflow-auto">{{ logs.join("\n") }}</pre>
+                </section>
             </div>
-            </div>
-
-            <section class="bg-white rounded shadow-lg p-4">
-                <h2 class="font-semibold text-lg mb-2">Debug Console</h2>
-                <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 max-h-60 overflow-auto">{{ logs.join("\n") }}</pre>
-            </section>
             </template>
 
             <template v-else-if="currentView==='planner'">
