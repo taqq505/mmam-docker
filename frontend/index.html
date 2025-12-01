@@ -80,6 +80,13 @@
                     <p class="text-sm text-slate-500">ST2110 Flow Management</p>
                 </div>
                 <div class="ml-auto flex items-center gap-4">
+                    <button
+                        v-if="token"
+                        class="px-3 py-2 text-xs rounded border border-slate-300 text-slate-600 hover:bg-slate-50"
+                        @click="reloadUiPreserveSession"
+                    >
+                        Reload UI
+                    </button>
                     <div v-if="token" class="text-right">
                         <p class="text-sm font-semibold">
                             {{ currentUser ? currentUser.username : "Logged in" }}
@@ -365,9 +372,16 @@
                                             <div
                                                 v-for="row in plannerDetailRows"
                                                 :key="row.key"
-                                                class="flex flex-wrap gap-[2px]"
+                                                class="space-y-0"
                                                 :style="plannerRowStyle(row)"
                                             >
+                                                <div
+                                                    v-if="row.segmentLabel && row.showLabel"
+                                                    class="text-[11px] text-slate-400"
+                                                >
+                                                    {{ row.segmentLabel }}
+                                                </div>
+                                                <div class="flex flex-wrap gap-[2px]">
                                                 <span
                                                     v-for="n in row.leading"
                                                     :key="`lead-${row.key}-${n}`"
@@ -390,6 +404,7 @@
                                                     class="inline-block"
                                                     style="width:12px;height:12px;visibility:hidden"
                                                 ></span>
+                                                </div>
                                             </div>
                                         </div>
                                         <p v-else class="text-xs text-slate-400 border rounded bg-slate-50 p-3">Select a view to display the grid.</p>

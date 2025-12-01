@@ -403,6 +403,11 @@ createApp({
     this.loadBaseUrl();
     this.initializeViewFromHash();
     window.addEventListener("popstate", this.handlePopState);
+    const reloadToken = sessionStorage.getItem("mmam_reload_token");
+    if (reloadToken) {
+      this.token = reloadToken;
+      sessionStorage.removeItem("mmam_reload_token");
+    }
     if (this.token) {
       this.fetchMe();
     }
@@ -563,7 +568,16 @@ createApp({
       flushRow();
       rows.forEach((row, idx) => {
         const prev = rows[idx - 1];
-        row.gapTop = Boolean(prev && prev.segment24 !== row.segment24);
+        const boundaryChanged = Boolean(prev && prev.segment24 !== row.segment24);
+        const isFirst = idx === 0;
+        row.segmentLabel = null;
+        row.gapTop = boundaryChanged;
+        row.showLabel = boundaryChanged || isFirst;
+        if (row.showLabel) {
+          const absoluteStart = base + row.cells[0].index;
+          const aligned = absoluteStart - (absoluteStart % SUBNET_24_SIZE);
+          row.segmentLabel = `${this.intToIp(aligned)}/24`;
+        }
       });
       return rows;
     },
@@ -990,6 +1004,12 @@ createApp({
           this.summaryRefreshTimer = null;
         }
       }, 1000);
+    },
+    reloadUiPreserveSession() {
+      if (this.token) {
+        sessionStorage.setItem("mmam_reload_token", this.token);
+      }
+      window.location.reload();
     },
     async refreshFlows() {
       try {
@@ -2049,7 +2069,7 @@ createApp({
       if (!row) return {};
       const baseGap = row.order === 0 ? 0 : 2;
       return {
-        marginTop: row.gapTop ? "16px" : `${baseGap}px`
+        marginTop: row.gapTop ? "8px" : `${baseGap}px`
       };
     },
     updatePlannerGauss(startIndex) {
