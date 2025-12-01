@@ -133,6 +133,31 @@
                         </div>
                     </div>
                 </section>
+                <section v-if="realtime.enabled" class="bg-white p-4 rounded shadow-lg space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-semibold text-lg">Realtime Updates</h2>
+                        <span class="text-xs text-slate-500" v-if="realtime.connected">connected</span>
+                        <span class="text-xs text-slate-400" v-else>offline</span>
+                    </div>
+                    <div class="text-xs text-slate-500" v-if="!realtimeFeed.length">
+                        No MQTT events received yet.
+                    </div>
+                    <ul v-else class="space-y-2 max-h-48 overflow-auto text-sm">
+                        <li
+                            v-for="item in realtimeFeed"
+                            :key="item.id"
+                            class="border border-slate-200 rounded p-2 text-slate-700"
+                        >
+                            <p class="font-semibold text-sm truncate">{{ item.display }}</p>
+                            <p class="text-[11px] text-slate-500">
+                                {{ item.action }} • {{ item.timestamp }}
+                                <span v-if="item.diffKeys.length" class="ml-1 text-slate-400">
+                                    ({{ item.diffKeys.join(", ") }})
+                                </span>
+                            </p>
+                        </li>
+                    </ul>
+                </section>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -231,7 +256,7 @@
                             <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
                                 <aside class="bg-white border rounded-lg p-3 space-y-3 shadow">
                                     <div>
-                                        <p class="text-sm font-semibold">Drives</p>
+                                        <p class="text-sm font-semibold">Root /8</p>
                                         <select
                                             class="mt-2 w-full border rounded px-3 py-2 text-sm bg-white"
                                             :value="planner.selectedDriveId || ''"
@@ -250,7 +275,7 @@
                                                 :class="planner.selectedFolderId===planner.selectedDriveId ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-300 text-slate-600 hover:bg-slate-100'"
                                                 @click="planner.selectedFolderId = planner.selectedDriveId"
                                             >
-                                                {{ driveLabel(planner.drives.find(d => d.id === planner.selectedDriveId)) }}
+                                                {{ driveLabel(planner.drives.find(d => d.id === planner.selectedDriveId)) || 'Root' }}
                                             </button>
                                             <div v-for="row in plannerFolderTree" :key="row.node.id" class="flex items-center gap-2">
                                             <button
@@ -267,8 +292,14 @@
                                             </button>
                                                 <button
                                                     v-if="canExpandFolder(row.node)"
-                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition"
-                                                    :class="isFolderExpanded(row.node.id) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'"
+                                                    class="text-[10px] px-2 py-1 rounded border font-semibold transition relative overflow-hidden"
+                                                    :class="[
+                                                        isFolderExpanded(row.node.id)
+                                                            ? 'bg-slate-900 text-white border-slate-900'
+                                                            : hasLoadedChildFolders(row.node.id)
+                                                                ? 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100 folder-hint-border'
+                                                                : 'bg-white text-slate-600 border-slate-400 hover:bg-slate-100'
+                                                    ]"
                                                     :title="isFolderExpanded(row.node.id) ? 'Collapse folder' : 'Expand folder'"
                                                     @click.stop="toggleFolder(row.node)"
                                                 >
@@ -1756,6 +1787,14 @@
         .toast-fade-leave-to {
             opacity: 0;
             transform: translateY(-20px);
+        }
+        @keyframes folderPulse {
+            0% { box-shadow: 0 0 0 0 rgba(37,99,235,0.25); }
+            50% { box-shadow: 0 0 0 4px rgba(37,99,235,0.08); }
+            100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+        }
+        .folder-hint-border {
+            animation: folderPulse 2.2s ease-in-out infinite;
         }
     </style>
 </body>

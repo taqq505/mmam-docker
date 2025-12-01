@@ -277,6 +277,7 @@ createApp({
         client: null,
         connected: false
       },
+      realtimeFeed: [],
       importFile: null,
       importingFlows: false,
       checkerTabs: [
@@ -945,6 +946,21 @@ createApp({
         this.mergeFlowIntoCollections(event.flow, action);
       }
       this.scheduleSummaryRefresh();
+      this.appendRealtimeFeed(event);
+    },
+    appendRealtimeFeed(event) {
+      const entry = {
+        id: `${event.flow_id}-${Date.now()}`,
+        flow_id: event.flow_id,
+        display: (event.flow && (event.flow.display_name || event.flow.flow_id)) || event.flow_id,
+        action: event.event || event.action || "updated",
+        diffKeys: event.diff ? Object.keys(event.diff) : [],
+        timestamp: new Date().toLocaleTimeString()
+      };
+      this.realtimeFeed.unshift(entry);
+      if (this.realtimeFeed.length > 10) {
+        this.realtimeFeed.pop();
+      }
     },
     mergeFlowIntoCollections(flow, action = "updated") {
       if (!flow || !flow.flow_id) return;
@@ -1871,6 +1887,12 @@ createApp({
       const stored = this.planner.folderNodes[node.id] || node;
       if (!stored.loaded) return true;
       const children = stored.children || [];
+      return children.some(child => child && child.kind !== "child");
+    },
+    hasLoadedChildFolders(folderId) {
+      const node = this.planner.folderNodes[folderId];
+      if (!node || !node.loaded) return false;
+      const children = node.children || [];
       return children.some(child => child && child.kind !== "child");
     },
     async toggleFolder(node) {
