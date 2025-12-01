@@ -99,7 +99,7 @@ API Base URL、匿名アクセス、flow lock role、Hard Delete などを制御
 
 ### Backup
 
-Planner 構成全体を JSON で Export / Import できます。Export の JSON は `/address/buckets/export` のレスポンスそのままなので、Import で戻すと元通りの階層が復元されます。
+Planner 構成全体を JSON で Export / Import できます。Import は既存のフォルダ/ビュー構成を全て上書きするため、実行前に必ず Export でバックアップを取得してください。Export の JSON は `/address/buckets/export` のレスポンスそのままなので、Import で戻すと元通りの階層が復元されます。
 
 ## API サマリ
 

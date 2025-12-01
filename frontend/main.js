@@ -219,6 +219,8 @@ const DEFAULT_ADVANCED_SEARCH = () => ({
 
 const PLANNER_GRID_COLUMNS = 64;
 const SUBNET_24_SIZE = 256;
+const EASY_VIEW_MAX_TOTAL = 4096;
+const EASY_VIEW_HISTORY_LIMIT = 6;
 
 const STATE_FREE = "FREE";
 const STATE_USED = "USED";
@@ -228,6 +230,7 @@ createApp({
   data() {
     return {
       baseUrl: "",
+      mqttWsOverride: "",
       token: null,
       currentUser: null,
       currentView: "dashboard",
@@ -354,6 +357,19 @@ createApp({
         isLoading: false,
         error: "",
         tab: "view",
+        easyView: {
+          mode: "cidr",
+          cidr: "",
+          start_ip: "",
+          end_ip: "",
+          error: "",
+          history: [],
+          map: null,
+          detailCells: [],
+          usedLookup: {},
+          activeLabel: "",
+          loading: false
+        },
         parentForm: {
           parent_id: null,
           mode: "cidr",
@@ -411,6 +427,7 @@ createApp({
     if (this.token) {
       this.fetchMe();
     }
+    this.loadMqttOverride();
     this.refreshFlows();
     this.fetchRealtimeConfig();
   },
@@ -529,57 +546,31 @@ createApp({
       return rows;
     },
     plannerGridColumns() {
-      const total = this.planner?.map?.scope?.total;
-      if (!Number.isFinite(total) || total <= 0) {
-        return PLANNER_GRID_COLUMNS;
-      }
-      return Math.max(1, Math.min(PLANNER_GRID_COLUMNS, Math.floor(total)));
+      return this.gridColumnsForMap(this.planner.map);
     },
     plannerDetailRows() {
-      if (!this.planner.detailCells.length || !this.planner.map?.scope) return [];
-      const base = this.planner.map.scope.start_int || 0;
-      const columns = PLANNER_GRID_COLUMNS;
-      const rows = [];
-      let currentKey = null;
-      let currentRow = null;
-      const columnOf = cell =>
-        Number.isFinite(cell.displayColumn) ? cell.displayColumn : cell.index % columns;
-      const flushRow = () => {
-        if (!currentRow || !currentRow.cells.length) return;
-        const startColumn = columnOf(currentRow.cells[0]);
-        const usedColumns = currentRow.cells.length;
-        const trailing = Math.max(0, columns - usedColumns - startColumn);
-        const absoluteStart = base + currentRow.cells[0].index;
-        currentRow.leading = Math.max(0, startColumn);
-        currentRow.trailing = trailing;
-        currentRow.segment24 = Math.floor(absoluteStart / SUBNET_24_SIZE);
-        rows.push(currentRow);
-      };
-      for (const cell of this.planner.detailCells) {
-        const absoluteIndex = base + cell.index;
-        const rowKey = Math.floor(absoluteIndex / columns);
-        if (rowKey !== currentKey) {
-          flushRow();
-          currentKey = rowKey;
-          currentRow = { key: rowKey, cells: [], order: rows.length };
-        }
-        currentRow.cells.push(cell);
+      return this.buildPlannerRowsForContext("explorer");
+    },
+    easyViewDetailRows() {
+      return this.buildPlannerRowsForContext("easy");
+    },
+    easyViewRangeSummary() {
+      const map = this.planner.easyView.map;
+      if (!map || !map.scope) return null;
+      const total = Number(map.scope.total) || 0;
+      let label = this.planner.easyView.activeLabel || "";
+      if (!label && map.scope.start_address && map.scope.end_address) {
+        label = `${map.scope.start_address} – ${map.scope.end_address}`;
       }
-      flushRow();
-      rows.forEach((row, idx) => {
-        const prev = rows[idx - 1];
-        const boundaryChanged = Boolean(prev && prev.segment24 !== row.segment24);
-        const isFirst = idx === 0;
-        row.segmentLabel = null;
-        row.gapTop = boundaryChanged;
-        row.showLabel = boundaryChanged || isFirst;
-        if (row.showLabel) {
-          const absoluteStart = base + row.cells[0].index;
-          const aligned = absoluteStart - (absoluteStart % SUBNET_24_SIZE);
-          row.segmentLabel = `${this.intToIp(aligned)}/24`;
-        }
-      });
-      return rows;
+      if (!label && Number.isFinite(map.scope.start_int)) {
+        const startInt = map.scope.start_int;
+        const endInt = startInt + Math.max(0, total - 1);
+        label = `${this.intToIp(startInt)} – ${this.intToIp(endInt)}`;
+      }
+      return {
+        total,
+        label
+      };
     },
     plannerParentSelectOptions() {
       const options = [];
@@ -857,9 +848,12 @@ createApp({
           throw new Error(`Failed to load realtime config: ${resp.status}`);
         }
         const data = await resp.json();
-        const enabled = Boolean(data.enabled && data.ws_url && data.topic);
+        const wsOverride = this.mqttWsOverride;
+        const wsUrl = wsOverride || data.ws_url;
+        const enabled = Boolean(data.enabled && wsUrl && data.topic);
         this.realtime.enabled = enabled;
-        this.realtime.wsUrl = data.ws_url || "";
+        this.realtime.wsUrl = wsUrl || "";
+        this.realtime.wsUrlInput = wsUrl || "";
         this.realtime.topicAll = data.topic_all || data.topic || "";
         this.realtime.topicFlowPrefix = data.topic_flow_prefix || "";
         this.realtime.topic = this.realtime.topicAll || data.topic || "";
@@ -1010,6 +1004,25 @@ createApp({
         sessionStorage.setItem("mmam_reload_token", this.token);
       }
       window.location.reload();
+    },
+    saveMqttOverride() {
+      if (this.realtime.wsUrlInput) {
+        localStorage.setItem("mmam_mqtt_ws_url", this.realtime.wsUrlInput);
+        this.mqttWsOverride = this.realtime.wsUrlInput;
+        this.notify("MQTT WebSocket URL saved");
+        this.fetchRealtimeConfig();
+      }
+    },
+    resetMqttOverride() {
+      localStorage.removeItem("mmam_mqtt_ws_url");
+      this.mqttWsOverride = "";
+      this.realtime.wsUrlInput = "";
+      this.notify("MQTT WebSocket URL reset");
+      this.fetchRealtimeConfig();
+    },
+    loadMqttOverride() {
+      this.mqttWsOverride = localStorage.getItem("mmam_mqtt_ws_url") || "";
+      this.realtime.wsUrlInput = this.mqttWsOverride;
     },
     async refreshFlows() {
       try {
@@ -2014,31 +2027,12 @@ createApp({
         this.notify("Range start/end must be IPv4 addresses", "error");
         return;
       }
-      const params = new URLSearchParams({ range_start: rangeStart, range_end: rangeEnd });
-      if (centerOverride) {
-        params.append("center", centerOverride);
-      }
       this.planner.isLoading = true;
       this.planner.error = "";
       try {
-        const headers = this.token ? { Authorization: `Bearer ${this.token}` } : {};
-        const resp = await fetch(`${this.baseUrl}/api/address-map?${params.toString()}`, {
-          headers
-        });
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Failed to load address map: ${resp.status} ${text}`);
-        }
-        const data = await resp.json();
-        this.planner.map = data;
-        this.planner.usedLookup = {};
-        (data.used_details || []).forEach(detail => {
-          this.planner.usedLookup[detail.index] = detail;
-        });
-        const total = data.scope && typeof data.scope.total === "number" ? data.scope.total : 0;
-        this.planner.centerIndex = Math.min(Math.max(0, data.center_index || 0), Math.max(0, total - 1));
+        const data = await this.fetchAddressMapData(rangeStart, rangeEnd, centerOverride);
+        this.applyAddressMapData(data, "explorer");
         this.planner.centerAddressInput = "";
-        this.planner.detailCells = this.plannerBuildDetailCells(total);
       } catch (err) {
         console.error(err);
         this.planner.error = err.message;
@@ -2047,23 +2041,267 @@ createApp({
         this.planner.isLoading = false;
       }
     },
-    plannerBuildDetailCells(count) {
+    plannerBuildDetailCells(count, context = "explorer") {
       const cells = [];
-      if (!this.planner.map || !this.planner.map.scope) return cells;
-      const scope = this.planner.map.scope;
+      const map = this.plannerMapForContext(context);
+      if (!map || !map.scope) return cells;
+      const scope = map.scope;
       const base = scope.start_int;
+      const columns = this.gridColumnsForContext(context);
       for (let index = 0; index < count; index += 1) {
         const absoluteIndex = base + index;
         const address = this.intToIp(absoluteIndex);
         cells.push({
           index,
           address,
-          state: this.plannerStateForIndex(index),
-          groupSize: this.detectGroupSize(index),
-          displayColumn: absoluteIndex % PLANNER_GRID_COLUMNS
+          state: this.plannerStateForIndex(index, context),
+          groupSize: this.detectGroupSize(index, context),
+          displayColumn: absoluteIndex % columns
         });
       }
       return cells;
+    },
+    async fetchAddressMapData(rangeStart, rangeEnd, centerOverride = null) {
+      if (!rangeStart || !rangeEnd) {
+        throw new Error("range_start and range_end are required");
+      }
+      const params = new URLSearchParams({ range_start: rangeStart, range_end: rangeEnd });
+      if (centerOverride) {
+        params.append("center", centerOverride);
+      }
+      const headers = this.token ? { Authorization: `Bearer ${this.token}` } : {};
+      const resp = await fetch(`${this.baseUrl}/api/address-map?${params.toString()}`, {
+        headers
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Failed to load address map: ${resp.status} ${text}`);
+      }
+      return resp.json();
+    },
+    applyAddressMapData(data, context = "explorer") {
+      if (!data) return;
+      const total = data.scope && typeof data.scope.total === "number" ? data.scope.total : 0;
+      const usedLookup = {};
+      (data.used_details || []).forEach(detail => {
+        usedLookup[detail.index] = detail;
+      });
+      if (context === "easy") {
+        this.planner.easyView.map = data;
+        this.planner.easyView.usedLookup = usedLookup;
+        this.planner.easyView.detailCells = this.plannerBuildDetailCells(total, "easy");
+      } else {
+        this.planner.map = data;
+        this.planner.usedLookup = usedLookup;
+        this.planner.centerIndex = Math.min(Math.max(0, data.center_index || 0), Math.max(0, total - 1));
+        this.planner.gauss = null;
+        this.planner.detailCells = this.plannerBuildDetailCells(total, "explorer");
+      }
+    },
+    plannerMapForContext(context = "explorer") {
+      return context === "easy" ? this.planner.easyView.map : this.planner.map;
+    },
+    plannerUsedLookupForContext(context = "explorer") {
+      return context === "easy" ? this.planner.easyView.usedLookup : this.planner.usedLookup;
+    },
+    gridColumnsForMap(map) {
+      const total = map?.scope?.total;
+      if (!Number.isFinite(total) || total <= 0) {
+        return PLANNER_GRID_COLUMNS;
+      }
+      return Math.max(1, Math.min(PLANNER_GRID_COLUMNS, Math.floor(total)));
+    },
+    gridColumnsForContext(context = "explorer") {
+      return this.gridColumnsForMap(this.plannerMapForContext(context));
+    },
+    buildPlannerRowsForContext(context = "explorer") {
+      const map = this.plannerMapForContext(context);
+      const detailCells = context === "easy" ? this.planner.easyView.detailCells : this.planner.detailCells;
+      if (!detailCells.length || !map?.scope) return [];
+      const base = map.scope.start_int || 0;
+      const columns = this.gridColumnsForContext(context);
+      const rows = [];
+      let currentKey = null;
+      let currentRow = null;
+      const columnOf = cell =>
+        Number.isFinite(cell.displayColumn) ? cell.displayColumn : cell.index % columns;
+      const flushRow = () => {
+        if (!currentRow || !currentRow.cells.length) return;
+        const startColumn = columnOf(currentRow.cells[0]);
+        const usedColumns = currentRow.cells.length;
+        const trailing = Math.max(0, columns - usedColumns - startColumn);
+        const absoluteStart = base + currentRow.cells[0].index;
+        currentRow.leading = Math.max(0, startColumn);
+        currentRow.trailing = trailing;
+        currentRow.segment24 = Math.floor(absoluteStart / SUBNET_24_SIZE);
+        rows.push(currentRow);
+      };
+      for (const cell of detailCells) {
+        const absoluteIndex = base + cell.index;
+        const rowKey = Math.floor(absoluteIndex / columns);
+        if (rowKey !== currentKey) {
+          flushRow();
+          currentKey = rowKey;
+          currentRow = { key: rowKey, cells: [], order: rows.length };
+        }
+        currentRow.cells.push(cell);
+      }
+      flushRow();
+      rows.forEach((row, idx) => {
+        const prev = rows[idx - 1];
+        const boundaryChanged = Boolean(prev && prev.segment24 !== row.segment24);
+        const isFirst = idx === 0;
+        row.segmentLabel = null;
+        row.gapTop = boundaryChanged;
+        row.showLabel = boundaryChanged || isFirst;
+        if (row.showLabel && row.cells.length) {
+          const absoluteStart = base + row.cells[0].index;
+          const aligned = absoluteStart - (absoluteStart % SUBNET_24_SIZE);
+          row.segmentLabel = `${this.intToIp(aligned)}/24`;
+        }
+      });
+      return rows;
+    },
+    parseCidrRange(input) {
+      console.log("parseCidrRange - input:", input);
+      const trimmed = (input || "").trim();
+      const [ipPart, prefixPart] = trimmed.split("/");
+      console.log("parseCidrRange - ipPart:", ipPart, "prefixPart:", prefixPart);
+      if (!ipPart || typeof prefixPart === "undefined") {
+        console.log("parseCidrRange - missing parts");
+        return null;
+      }
+      if (!this.isValidIpv4(ipPart)) {
+        console.log("parseCidrRange - invalid IPv4");
+        return null;
+      }
+      const prefix = Number(prefixPart);
+      if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+        console.log("parseCidrRange - invalid prefix");
+        return null;
+      }
+      const size = Math.pow(2, 32 - prefix);
+      const ipInt = this.ipToInt(ipPart);
+      if (!Number.isFinite(ipInt)) {
+        console.log("parseCidrRange - invalid ipInt");
+        return null;
+      }
+      const startInt = Math.floor(ipInt / size) * size;
+      const endInt = startInt + size - 1;
+      const result = {
+        start_ip: this.intToIp(startInt),
+        end_ip: this.intToIp(endInt),
+        total: size,
+        label: `${this.intToIp(startInt)}/${prefix}`
+      };
+      console.log("parseCidrRange - result:", result);
+      return result;
+    },
+    resolveEasyViewRange() {
+      const easy = this.planner.easyView;
+      console.log("resolveEasyViewRange - mode:", easy.mode, "cidr:", easy.cidr, "start_ip:", easy.start_ip, "end_ip:", easy.end_ip);
+      if (easy.mode === "cidr") {
+        if (!easy.cidr) {
+          easy.error = "CIDR is required";
+          return null;
+        }
+        const parsed = this.parseCidrRange(easy.cidr);
+        console.log("resolveEasyViewRange - parsed CIDR:", parsed);
+        if (!parsed) {
+          easy.error = "Invalid CIDR format";
+          return null;
+        }
+        if (parsed.total > EASY_VIEW_MAX_TOTAL) {
+          easy.error = `CIDR range must be <= ${EASY_VIEW_MAX_TOTAL} addresses (/20 or smaller)`;
+          return null;
+        }
+        return parsed;
+      }
+      if (!easy.start_ip || !easy.end_ip) {
+        easy.error = "Start and end IP are required";
+        return null;
+      }
+      const startNorm = this.normalizeIp(easy.start_ip);
+      const endNorm = this.normalizeIp(easy.end_ip);
+      console.log("resolveEasyViewRange - normalized:", startNorm, endNorm);
+      if (!this.isValidIpv4(startNorm) || !this.isValidIpv4(endNorm)) {
+        easy.error = "Start and end IP must be IPv4";
+        return null;
+      }
+      const startInt = this.ipToInt(startNorm);
+      const endInt = this.ipToInt(endNorm);
+      if (endInt < startInt) {
+        easy.error = "End IP must be greater than or equal to start IP";
+        return null;
+      }
+      const total = endInt - startInt + 1;
+      if (total > EASY_VIEW_MAX_TOTAL) {
+        easy.error = `Manual range must be <= ${EASY_VIEW_MAX_TOTAL} addresses`;
+        return null;
+      }
+      const result = {
+        start_ip: this.intToIp(startInt),
+        end_ip: this.intToIp(endInt),
+        total,
+        label: `${this.intToIp(startInt)} – ${this.intToIp(endInt)}`
+      };
+      console.log("resolveEasyViewRange - result:", result);
+      return result;
+    },
+    async loadEasyViewRange(rangeOverride = null) {
+      const easy = this.planner.easyView;
+      easy.error = "";
+      const targetRange = rangeOverride || this.resolveEasyViewRange();
+      console.log("loadEasyViewRange - targetRange:", targetRange);
+      if (!targetRange || !targetRange.start_ip || !targetRange.end_ip) {
+        if (!targetRange) {
+          easy.error = "Please enter valid IP range or CIDR";
+        } else {
+          easy.error = "Invalid range: missing start_ip or end_ip";
+        }
+        console.log("loadEasyViewRange - validation failed:", easy.error);
+        return;
+      }
+      easy.loading = true;
+      try {
+        console.log("loadEasyViewRange - fetching:", targetRange.start_ip, targetRange.end_ip);
+        const data = await this.fetchAddressMapData(targetRange.start_ip, targetRange.end_ip);
+        this.applyAddressMapData(data, "easy");
+        easy.activeLabel = targetRange.label;
+        this.recordEasyViewHistory(targetRange);
+      } catch (err) {
+        easy.error = err.message;
+        this.notify(err.message, "error");
+        console.error("loadEasyViewRange - error:", err);
+      } finally {
+        easy.loading = false;
+      }
+    },
+    recordEasyViewHistory(range) {
+      if (!range) return;
+      const history = this.planner.easyView.history.filter(
+        entry => entry.start_ip !== range.start_ip || entry.end_ip !== range.end_ip
+      );
+      history.unshift({
+        id: Date.now(),
+        label: range.label,
+        start_ip: range.start_ip,
+        end_ip: range.end_ip,
+        total: range.total
+      });
+      this.planner.easyView.history = history.slice(0, EASY_VIEW_HISTORY_LIMIT);
+    },
+    async loadEasyViewFromHistory(entry) {
+      if (!entry) return;
+      await this.loadEasyViewRange({
+        start_ip: entry.start_ip,
+        end_ip: entry.end_ip,
+        label: entry.label,
+        total: entry.total
+      });
+    },
+    clearEasyViewHistory() {
+      this.planner.easyView.history = [];
     },
     plannerRowStyle(row) {
       if (!row) return {};
@@ -2094,11 +2332,12 @@ createApp({
         tone: hasUsed ? "used" : "free"
       };
     },
-    detectGroupSize(index) {
-      if (!Number.isFinite(index) || !this.planner.map || !Array.isArray(this.planner.map.segments)) {
+    detectGroupSize(index, context = "explorer") {
+      const map = this.plannerMapForContext(context);
+      if (!Number.isFinite(index) || !map || !Array.isArray(map.segments)) {
         return 1;
       }
-      const segment = this.plannerSegmentForIndex(index);
+      const segment = this.plannerSegmentForIndex(index, context);
       if (!segment || !Number.isFinite(segment.start) || !Number.isFinite(segment.length)) {
         return 1;
       }
@@ -2106,17 +2345,18 @@ createApp({
       const remaining = segment.length - offsetWithinSegment;
       return remaining > 0 ? remaining : 1;
     },
-    plannerStateForIndex(index) {
-      const segment = this.plannerSegmentForIndex(index);
+    plannerStateForIndex(index, context = "explorer") {
+      const segment = this.plannerSegmentForIndex(index, context);
       return segment ? segment.state : STATE_FREE;
     },
-    plannerSegmentForIndex(index) {
-      if (!this.planner.map || !this.planner.map.segments) return null;
+    plannerSegmentForIndex(index, context = "explorer") {
+      const map = this.plannerMapForContext(context);
+      if (!map || !map.segments) return null;
       let left = 0;
-      let right = this.planner.map.segments.length - 1;
+      let right = map.segments.length - 1;
       while (left <= right) {
         const mid = Math.floor((left + right) / 2);
-        const seg = this.planner.map.segments[mid];
+        const seg = map.segments[mid];
         const start = seg.start;
         const end = seg.start + seg.length;
         if (index < start) {
@@ -2129,7 +2369,7 @@ createApp({
       }
       return null;
     },
-    plannerCellStyle(cell) {
+    plannerCellStyle(cell, context = "explorer") {
       const baseColors = {
         FREE: "rgba(16,185,129,0.25)",
         RESERVED: "rgba(245,158,11,0.35)",
@@ -2143,7 +2383,7 @@ createApp({
         margin: "0px",
         marginRight: "0px"
       };
-      const columns = this.plannerGridColumns || PLANNER_GRID_COLUMNS;
+      const columns = this.gridColumnsForContext(context) || PLANNER_GRID_COLUMNS;
       const column = Number.isFinite(cell.displayColumn) ? cell.displayColumn : cell.index % columns;
       let extraGap = 0;
       if ((column + 1) % 16 === 0) extraGap = Math.max(extraGap, 3);
@@ -2151,7 +2391,7 @@ createApp({
       if (extraGap > 0 && (column + 1) !== columns) {
         style.marginRight = `${extraGap}px`;
       }
-      const gauss = this.planner.gauss;
+      const gauss = context === "explorer" ? this.planner.gauss : null;
       if (gauss && cell.index >= gauss.start && cell.index < gauss.end) {
         const glowColor = gauss.tone === "used" ? "rgba(248,113,113,0.85)" : "rgba(16,185,129,0.85)";
         style.boxShadow = `0 0 6px 2px ${glowColor}`;
@@ -2159,20 +2399,25 @@ createApp({
       }
       return style;
     },
-    handlePlannerHover(cell, payload) {
+    handlePlannerHover(cell, payload, context = "explorer") {
       if (!cell || typeof cell.index !== "number") return;
       const eventLike = payload && payload.target ? payload : null;
-      const state = this.plannerStateForIndex(cell.index);
+      const state = this.plannerStateForIndex(cell.index, context);
       const info = {
         index: cell.index,
         address: cell.address,
         state
       };
-      if (state === STATE_USED && this.planner.usedLookup[cell.index]) {
-        info.flows = this.planner.usedLookup[cell.index].flows || [];
+      const lookup = this.plannerUsedLookupForContext(context);
+      if (state === STATE_USED && lookup && lookup[cell.index]) {
+        info.flows = lookup[cell.index].flows || [];
       }
       this.planner.hoverInfo = info;
-      this.updatePlannerGauss(cell.index);
+      if (context === "explorer") {
+        this.updatePlannerGauss(cell.index);
+      } else {
+        this.planner.gauss = null;
+      }
       if (eventLike) {
         this.updateHoverTooltipPosition(eventLike);
         this.planner.hoverTooltip.visible = true;
@@ -2183,9 +2428,10 @@ createApp({
       this.planner.hoverTooltip.visible = false;
       this.planner.gauss = null;
     },
-    emphasizePlannerCell(cell) {
+    emphasizePlannerCell(cell, context = "explorer") {
       if (!cell) return;
-      const detail = this.planner.usedLookup[cell.index];
+      const lookup = this.plannerUsedLookupForContext(context);
+      const detail = lookup ? lookup[cell.index] : null;
       if (!detail || !detail.flows || detail.flows.length === 0) {
         this.notify("No flow data for this cell", "error");
         return;
