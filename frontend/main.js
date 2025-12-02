@@ -236,8 +236,8 @@ createApp({
       currentView: "dashboard",
       views: ["dashboard", "flows", "search", "newFlow", "wizard", "planner", "checker", "users", "settings"],
       loginForm: {
-        username: "admin",
-        password: "admin"
+        username: "",
+        password: ""
       },
       flows: [],
       users: [],
