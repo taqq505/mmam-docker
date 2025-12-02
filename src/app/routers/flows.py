@@ -83,7 +83,7 @@ FLOW_DB_COLUMNS = [
     "media_type", "st2110_format", "redundancy_group",
     "alias1", "alias2", "alias3", "alias4", "alias5", "alias6", "alias7", "alias8",
     "flow_status", "availability", "last_seen",
-    "data_source", "rds_address", "rds_api_url",
+    "data_source", "rds_address", "rds_api_url", "rds_version",
     "user_field1", "user_field2", "user_field3", "user_field4",
     "user_field5", "user_field6", "user_field7", "user_field8",
     "note", "locked"
@@ -168,6 +168,7 @@ class Flow(BaseModel):
     data_source: str | None = "manual"
     rds_address: str | None = None
     rds_api_url: str | None = None
+    rds_version: str | None = None
     user_field1: str | None = None
     user_field2: str | None = None
     user_field3: str | None = None
@@ -227,6 +228,7 @@ class FlowUpdate(BaseModel):
     data_source: str | None = None
     rds_address: str | None = None
     rds_api_url: str | None = None
+    rds_version: str | None = None
     user_field1: str | None = None
     user_field2: str | None = None
     user_field3: str | None = None
@@ -256,7 +258,7 @@ def _build_flow_values(flow_id: str, flow: Flow):
         flow.alias1, flow.alias2, flow.alias3, flow.alias4,
         flow.alias5, flow.alias6, flow.alias7, flow.alias8,
         flow.flow_status, flow.availability, flow.last_seen,
-        flow.data_source, flow.rds_address, flow.rds_api_url,
+        flow.data_source, flow.rds_address, flow.rds_api_url, flow.rds_version,
         flow.user_field1, flow.user_field2, flow.user_field3, flow.user_field4,
         flow.user_field5, flow.user_field6, flow.user_field7, flow.user_field8,
         flow.note, bool(flow.locked)

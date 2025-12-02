@@ -311,8 +311,18 @@ createApp({
       logs: [],
       fieldGroups: FIELD_GROUPS,
       wizard: {
-        is04BaseUrl: "http://example:8080/x-nmos/",
-        is05BaseUrl: "http://example:8080/x-nmos/",
+        useRDS: false,
+        rdsBaseUrl: "",
+        rdsVersion: "v1.3",
+        rdsVersions: ["v1.3", "v1.2", "v1.1", "v1.0"],
+        fetchingRDS: false,
+        rdsNodesModal: {
+          visible: false,
+          nodes: [],
+          selected: null
+        },
+        is04BaseUrl: "",
+        is05BaseUrl: "",
         is04Version: "v1.3",
         is05Version: "v1.1",
         is04Versions: ["v1.3", "v1.2", "v1.1", "v1.0"],
@@ -1774,6 +1784,59 @@ createApp({
         this.notify(err.message, "error");
       }
     },
+    async fetchRDSNodes() {
+      if (!this.wizard.rdsBaseUrl) {
+        this.notify("Please enter RDS Base URL / RDSのベースURLを入力してください", "error");
+        return;
+      }
+      this.wizard.fetchingRDS = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/nmos/detect-is04-from-rds`, {
+          method: "POST",
+          headers: this.authHeaders(),
+          body: JSON.stringify({
+            rds_base_url: this.wizard.rdsBaseUrl,
+            rds_version: this.wizard.rdsVersion,
+            timeout: 5
+          })
+        });
+        await this.handleFetchResponse(resp);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to fetch RDS nodes: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        if (data.nodes && data.nodes.length > 0) {
+          // Show modal for node selection
+          this.wizard.rdsNodesModal = {
+            visible: true,
+            nodes: data.nodes,
+            selected: 0
+          };
+        } else {
+          this.notify("No nodes found in RDS / RDSにノードが見つかりませんでした", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        this.notify(err.message, "error");
+      } finally {
+        this.wizard.fetchingRDS = false;
+      }
+    },
+    applyRDSNode() {
+      const selectedIndex = this.wizard.rdsNodesModal.selected;
+      if (selectedIndex === null) return;
+      const node = this.wizard.rdsNodesModal.nodes[selectedIndex];
+      if (node) {
+        this.wizard.is04BaseUrl = node.is04_url;
+        // Set IS-04 version if detected
+        if (node.version && node.version !== "unknown" && this.wizard.is04Versions.includes(node.version)) {
+          this.wizard.is04Version = node.version;
+        }
+        this.notify(`IS-04 endpoint set to ${node.label}`);
+      }
+      this.wizard.rdsNodesModal.visible = false;
+    },
     copyIs04ToIs05() {
       this.wizard.is05BaseUrl = this.wizard.is04BaseUrl;
     },
@@ -1939,7 +2002,7 @@ createApp({
           nmos_label: flow.label,
           nmos_description: flow.description,
           transport_protocol: flow.sender_transport || "RTP/UDP",
-          data_source: "nmos",
+          data_source: this.wizard.useRDS ? "rds" : "nmos",
           note: flow.description,
           sdp_url: flow.sdp_url || flow.sender_manifest || null,
           sdp_cache: flow.sdp_cache || null,
@@ -1955,6 +2018,11 @@ createApp({
         st2110_format: flow.st2110_format || null,
         redundancy_group: flow.redundancy_group || null
       };
+        // Add RDS information if RDS was used
+        if (this.wizard.useRDS) {
+          payload.rds_api_url = this.wizard.rdsBaseUrl;
+          payload.rds_version = this.wizard.rdsVersion;
+        }
         ["group_port_a", "group_port_b", "source_port_a", "source_port_b"].forEach(key => {
           if (payload[key] === "" || payload[key] === undefined) {
             payload[key] = null;

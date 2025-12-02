@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from app.auth import require_roles
 from app.nmos_client import (
     normalize_base_url,
@@ -16,6 +16,28 @@ from app.nmos_client import (
 router = APIRouter()
 
 
+def ensure_x_nmos_segment(url: str) -> str:
+    """Ensure returned base URL keeps (or appends) the /x-nmos segment."""
+    if not url:
+        return url
+    parts = urlsplit(url)
+    path = parts.path or ""
+    lower_path = path.lower()
+    idx = lower_path.find("/x-nmos")
+    if idx != -1:
+        path = path[:idx + len("/x-nmos")]
+    else:
+        if not path:
+            path = "/x-nmos"
+        else:
+            if not path.endswith("/"):
+                path += "/"
+            path += "x-nmos"
+    if not path.endswith("/"):
+        path += "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 class DiscoverRequest(BaseModel):
     is04_base_url: str
     is05_base_url: str
@@ -27,6 +49,12 @@ class DiscoverRequest(BaseModel):
 class DetectIS05Request(BaseModel):
     is04_base_url: str
     is04_version: str = DEFAULT_IS04_VERSION
+    timeout: int = 5
+
+
+class DetectIS04FromRDSRequest(BaseModel):
+    rds_base_url: str
+    rds_version: str = DEFAULT_IS04_VERSION
     timeout: int = 5
 
 
@@ -224,6 +252,8 @@ def detect_is05_endpoints(payload: DetectIS05Request, user=Depends(require_roles
         if not base_url:
             base_url = is05_url
 
+        base_url = ensure_x_nmos_segment(base_url)
+
         # Avoid duplicates
         if base_url in seen_urls:
             continue
@@ -239,4 +269,71 @@ def detect_is05_endpoints(payload: DetectIS05Request, user=Depends(require_roles
     return {
         "options": options,
         "count": len(options)
+    }
+
+
+@router.post("/nmos/detect-is04-from-rds")
+def detect_is04_from_rds(payload: DetectIS04FromRDSRequest, user=Depends(require_roles("editor", "admin"))):
+    """
+    Detect IS-04 Node API endpoints from RDS (IS-04 Query API).
+    Returns a list of nodes with their IS-04 Registration API URLs.
+    """
+    rds_base = normalize_base_url(payload.rds_base_url)
+    version = payload.rds_version.strip() or DEFAULT_IS04_VERSION
+    query_prefix = f"query/{version}/"
+    nodes_url = urljoin(rds_base, query_prefix + "nodes")
+
+    try:
+        nodes = fetch_json(nodes_url, payload.timeout)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch nodes from RDS: {str(e)}")
+
+    if not isinstance(nodes, list):
+        raise HTTPException(status_code=400, detail="Invalid nodes response from RDS")
+
+    node_options = []
+    seen_urls = set()
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        node_id = node.get("id", "")
+        node_label = node.get("label", node_id)
+        href = node.get("href", "")
+
+        if not href:
+            continue
+
+        # The href field contains the IS-04 Node API (Registration API) base URL
+        # Remove trailing slash and version suffix to get base URL
+        import re
+        base_url = href.rstrip("/")
+        # Extract base URL up to /x-nmos/ (remove /node/v1.x part)
+        base_url = re.sub(r'/node/v\d+\.\d+/?.*$', '', base_url)
+
+        # Extract version from href if present
+        version_match = None
+        if "/v1." in href:
+            match = re.search(r'/v(\d+\.\d+)', href)
+            if match:
+                version_match = f"v{match.group(1)}"
+
+        base_url = ensure_x_nmos_segment(base_url)
+
+        # Avoid duplicates
+        if base_url in seen_urls:
+            continue
+        seen_urls.add(base_url)
+
+        node_options.append({
+            "id": node_id,
+            "label": node_label,
+            "is04_url": base_url,
+            "version": version_match or "unknown"
+        })
+
+    return {
+        "nodes": node_options,
+        "count": len(node_options)
     }
