@@ -12,7 +12,7 @@ services:
       - mqtt
     volumes:
       - ./src:/app/src        # Host-side source mount for dev
-      - ./logs:/app/logs      # Optional: Persistent logs
+      - ./logs:/log           # Aggregate logs under /log inside the container
     command: >
       uvicorn app.main:app
       --host 0.0.0.0

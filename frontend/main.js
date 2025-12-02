@@ -309,6 +309,11 @@ createApp({
       detailFlow: null,
       detailEntries: [],
       logs: [],
+      logViewer: {
+        api: [],
+        audit: [],
+        loading: false
+      },
       fieldGroups: FIELD_GROUPS,
       wizard: {
         useRDS: false,
@@ -728,6 +733,14 @@ createApp({
       const changed = this.currentView !== validView || force;
       if (changed) {
         this.currentView = validView;
+      }
+      if (
+        changed &&
+        validView === "settings" &&
+        this.currentUser &&
+        this.currentUser.role === "admin"
+      ) {
+        this.refreshAllLogs();
       }
       if (changed && validView === "newFlow" && !this.editingFlowId) {
         this.resetFlowForm();
@@ -1605,6 +1618,65 @@ createApp({
         this.settings[key] = data.value;
         this.log(`Setting updated: ${key} = ${data.value}`);
         this.notify(`Setting updated: ${key}`);
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      }
+    },
+    async refreshAllLogs() {
+      await Promise.all(["api", "audit"].map(kind => this.refreshLogPreview(kind)));
+    },
+    async refreshLogPreview(kind) {
+      if (!this.token) {
+        this.notify("Log access requires authentication", "error");
+        return;
+      }
+      this.logViewer.loading = true;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/logs?kind=${kind}&lines=200`, {
+          headers: this.authHeaders()
+        });
+        await this.handleFetchResponse(resp);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to fetch ${kind} log: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        this.logViewer[kind] = data.lines || [];
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+      } finally {
+        this.logViewer.loading = false;
+      }
+    },
+    async downloadLog(kind) {
+      if (!this.token) {
+        this.notify("Log access requires authentication", "error");
+        return;
+      }
+      try {
+        const headers = {};
+        if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+        const resp = await fetch(`${this.baseUrl}/api/logs/download?kind=${kind}`, {
+          headers
+        });
+        await this.handleFetchResponse(resp);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to download ${kind} log: ${resp.status} ${text}`);
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0];
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `mmam-${kind}-log-${stamp}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        this.notify(`${kind.toUpperCase()} log downloaded`);
       } catch (err) {
         this.log(err.message);
         this.notify(err.message, "error");

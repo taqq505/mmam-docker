@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, constr
 from app.db import get_db_connection
@@ -7,6 +8,7 @@ import bcrypt
 
 router = APIRouter()
 ALLOWED_ROLES = {"viewer", "editor", "admin"}
+audit_logger = logging.getLogger("mmam.audit")
 
 
 class UserCreate(BaseModel):
@@ -34,7 +36,7 @@ class UserUpdate(BaseModel):
 # ユーザーログイン → JWTトークン発行
 # --------------------------------------------------------
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT username, password_hash, role FROM users WHERE username=%s", (form_data.username,))
@@ -46,6 +48,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials / 認証失敗")
 
     token = create_token(row[0], row[2])
+    client_ip = request.client.host if request.client else "unknown"
+    audit_logger.info("login success | user=%s | ip=%s", row[0], client_ip)
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -100,6 +104,7 @@ def create_user(payload: UserCreate, user=Depends(require_roles("admin"))):
     conn.commit()
     cur.close()
     conn.close()
+    audit_logger.info("user created | actor=%s | target=%s | role=%s", user["username"], payload.username, payload.role)
     return {"result": "ok", "username": payload.username}
 
 
@@ -140,6 +145,12 @@ def update_user(username: str, payload: UserUpdate, user=Depends(require_roles("
     conn.commit()
     cur.close()
     conn.close()
+    audit_logger.info(
+        "user updated | actor=%s | target=%s | fields=%s",
+        user["username"],
+        username,
+        ",".join(updated_fields) if updated_fields else "none"
+    )
     return {"result": "ok", "username": username, "updated_fields": updated_fields}
 
 
@@ -162,4 +173,5 @@ def delete_user(username: str, user=Depends(require_roles("admin"))):
     conn.commit()
     cur.close()
     conn.close()
+    audit_logger.info("user deleted | actor=%s | target=%s", user["username"], username)
     return {"result": "ok", "username": username, "deleted": True}

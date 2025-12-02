@@ -621,37 +621,53 @@ def import_address_buckets(
     cur = conn.cursor()
     try:
         cur.execute("TRUNCATE address_buckets RESTART IDENTITY CASCADE;")
-        sorted_buckets = sorted(
+        pending = sorted(
             buckets,
             key=lambda b: (_bucket_kind_weight(b.kind), b.id)
         )
-        for entry in sorted_buckets:
-            start_int = _ip_to_int(entry.start_ip)
-            end_int = _ip_to_int(entry.end_ip)
-            if start_int > end_int:
-                raise HTTPException(status_code=400, detail=f"Invalid range for bucket {entry.id}")
-            size = end_int - start_int + 1
-            cur.execute("""
-                INSERT INTO address_buckets
-                    (id, kind, privilege_id, parent_id, start_ip, end_ip, start_int, end_int, size, description, memo, color, cidr, is_reserved, created_at, updated_at)
-                VALUES
-                    (%s, %s, %s, %s, %s::INET, %s::INET, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW());
-            """, (
-                entry.id,
-                entry.kind,
-                entry.privilege_id,
-                entry.parent_id,
-                entry.start_ip,
-                entry.end_ip,
-                start_int,
-                end_int,
-                size,
-                entry.description,
-                entry.memo,
-                entry.color,
-                entry.cidr,
-                entry.is_reserved or False
-            ))
+        inserted_ids: set[int] = set()
+        while pending:
+            progress = False
+            remaining = []
+            for entry in pending:
+                if entry.parent_id and entry.parent_id not in inserted_ids:
+                    remaining.append(entry)
+                    continue
+                start_int = _ip_to_int(entry.start_ip)
+                end_int = _ip_to_int(entry.end_ip)
+                if start_int > end_int:
+                    raise HTTPException(status_code=400, detail=f"Invalid range for bucket {entry.id}")
+                size = end_int - start_int + 1
+                cur.execute("""
+                    INSERT INTO address_buckets
+                        (id, kind, privilege_id, parent_id, start_ip, end_ip, start_int, end_int, size, description, memo, color, cidr, is_reserved, created_at, updated_at)
+                    VALUES
+                        (%s, %s, %s, %s, %s::INET, %s::INET, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW());
+                """, (
+                    entry.id,
+                    entry.kind,
+                    entry.privilege_id,
+                    entry.parent_id,
+                    entry.start_ip,
+                    entry.end_ip,
+                    start_int,
+                    end_int,
+                    size,
+                    entry.description,
+                    entry.memo,
+                    entry.color,
+                    entry.cidr,
+                    entry.is_reserved or False
+                ))
+                inserted_ids.add(entry.id)
+                progress = True
+            if not progress:
+                missing_parents = sorted({entry.parent_id for entry in remaining if entry.parent_id and entry.parent_id not in inserted_ids})
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Import failed: missing parent buckets {missing_parents}"
+                )
+            pending = remaining
         cur.execute("SELECT setval('address_buckets_id_seq', (SELECT COALESCE(MAX(id), 0) FROM address_buckets));")
         conn.commit()
     except HTTPException:

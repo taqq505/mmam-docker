@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
@@ -15,6 +16,8 @@ from typing import List, Iterable
 # ルータインスタンスを定義
 # --------------------------------------------------------
 router = APIRouter()
+logger = logging.getLogger("mmam.flows")
+audit_logger = logging.getLogger("mmam.audit")
 
 TEXT_FILTER_FIELDS = {
     "flow_id", "display_name",
@@ -693,6 +696,14 @@ def import_flows(payload: List[Flow], user=Depends(require_roles("admin"))):
         diff = _flow_diff(before, flow_record) if before and flow_record else {}
         _publish_flow_event("updated", flow_record, flow_id, diff=diff)
 
+    audit_logger.info(
+        "flows import | user=%s | inserted=%s | updated=%s | skipped_locked=%s",
+        user["username"],
+        inserted,
+        updated,
+        skipped_locked
+    )
+
     return {
         "result": "ok",
         "inserted": inserted,
@@ -854,6 +865,12 @@ def apply_nmos_updates(
     updated_flow = _fetch_flow_record(flow_id)
     diff = _flow_diff(flow, updated_flow, updates.keys())
     _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
+    audit_logger.info(
+        "flow nmos apply | user=%s | flow_id=%s | fields=%s",
+        user["username"],
+        flow_id,
+        ",".join(updates.keys())
+    )
     return {"result": "ok", "flow_id": flow_id, "updated_fields": list(updates.keys())}
 
 
@@ -890,6 +907,12 @@ def set_flow_lock(
     updated_flow = _fetch_flow_record(flow_id)
     diff = _flow_diff(flow, updated_flow, ["locked"])
     _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
+    audit_logger.info(
+        "flow lock toggled | user=%s | flow_id=%s | locked=%s",
+        user["username"],
+        flow_id,
+        str(new_state).lower()
+    )
     return {"result": "ok", "flow_id": flow_id, "locked": new_state}
 
 
@@ -939,6 +962,12 @@ def update_flow(
     updated_flow = _fetch_flow_record(flow_id)
     diff = _flow_diff(current, updated_flow, updates.keys())
     _publish_flow_event("updated", updated_flow, flow_id, diff=diff)
+    audit_logger.info(
+        "flow updated | user=%s | flow_id=%s | fields=%s",
+        user["username"],
+        flow_id,
+        ",".join(updates.keys())
+    )
     return {"result": "ok", "flow_id": flow_id, "updated_fields": list(updates.keys())}
 
 
@@ -970,6 +999,12 @@ def create_flow(flow: Flow, user=Depends(require_roles("editor", "admin"))):
 
     new_flow = _fetch_flow_record(flow_id)
     _publish_flow_event("updated" if restored else "created", new_flow, flow_id)
+    audit_logger.info(
+        "flow created | user=%s | flow_id=%s | restored=%s",
+        user["username"],
+        flow_id,
+        str(restored).lower()
+    )
     return {"result": "ok", "flow_id": flow_id}
 
 
@@ -996,6 +1031,7 @@ def delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     conn.close()
     updated_flow = _fetch_flow_record(flow_id)
     _publish_flow_event("deleted", updated_flow, flow_id)
+    audit_logger.info("flow deleted | user=%s | flow_id=%s", user["username"], flow_id)
     return {"result": "ok", "flow_id": flow_id, "deleted": True}
 
 
@@ -1018,4 +1054,5 @@ def hard_delete_flow(flow_id: str, user=Depends(require_roles("admin"))):
     cur.close()
     conn.close()
     _publish_flow_event("hard_deleted", flow, flow_id)
+    audit_logger.info("flow hard deleted | user=%s | flow_id=%s", user["username"], flow_id)
     return {"result": "ok", "flow_id": flow_id, "hard_deleted": True}

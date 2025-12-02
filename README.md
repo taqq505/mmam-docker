@@ -77,6 +77,7 @@ IS-04/05 のベースURLとバージョンを入力し `Discover` すると、�
 ### Settings
 
 API Base URL、匿名アクセス、flow lock role、Hard Delete などを制御できます。フローの JSON Export/Import もここから行います。
+同じタブ内で API / Audit ログの最新 200 行を確認し、テキストファイルとしてダウンロードできます。
 
 ### MQTT
 
@@ -110,6 +111,7 @@ Planner 構成全体を JSON で Export / Import できます。Import は既存
 - `PATCH /api/address/buckets/{id}` / `DELETE ...` – Planner エントリ更新・削除。
 - `GET /api/address/buckets/export` / `POST /api/address/buckets/import` – Planner バックアップ入出力。
 - `POST /api/nmos/discover` – NMOS ノードからフロー候補を取得。
+- `GET /api/logs` / `GET /api/logs/download` – API / Audit ログの参照とダウンロード（管理者のみ）。
 
 認証は JWT (Bearer) で、`.env` の `SECRET_KEY` を共有キーにしています。`DISABLE_AUTH=true` で開発用に無効化することも可能です。
 
@@ -136,6 +138,7 @@ The stack is orchestrated via Docker Compose (FastAPI app, PostgreSQL, nginx sta
 - **NMOS Wizard** – Discover IS-04/05 nodes, import selected flows, and run NMOS diff/apply operations.
 - **Checker** – Inspect multicast collisions or NMOS vs MMAM differences.
 - **Settings** – Control API base URL, anonymous settings, flow lock role, hard delete, and flow JSON export/import.
+  The same view also exposes API / audit logs (latest 200 lines + download buttons) for administrators.
 - **Planner** – Explorer grid (double-click cells to open flow detail), Manage panel for creating/editing folders/views, Backup tab to export/import the entire tree.
 
 ## Planner Backup Format

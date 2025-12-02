@@ -505,7 +505,7 @@
                             <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
                                 <aside class="bg-white border rounded-lg p-3 space-y-3 shadow">
                                     <div>
-                                        <p class="text-sm font-semibold">Drives</p>
+                                        <p class="text-sm font-semibold">Root /8</p>
                                         <select
                                             class="mt-2 w-full border rounded px-3 py-2 text-sm bg-white"
                                             :value="planner.selectedDriveId || ''"
@@ -1898,6 +1898,38 @@
                                     />
                                     Editor or higher
                                 </label>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-white rounded shadow-lg p-4 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="font-semibold text-lg">System Logs</h2>
+                            <button class="px-3 py-1 bg-slate-900 text-white rounded text-sm" @click="refreshAllLogs" :disabled="logViewer.loading">
+                                {{ logViewer.loading ? 'Loading...' : 'Refresh all' }}
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-500">View or download recent API / audit logs (admin only).</p>
+                        <div class="grid gap-4 md:grid-cols-2">
+                            <div class="border rounded-lg p-3 space-y-2">
+                                <div class="flex items-center justify-between text-sm">
+                                    <h3 class="font-semibold">API Log</h3>
+                                    <div class="flex gap-2">
+                                        <button class="px-2 py-1 border rounded text-xs" @click="refreshLogPreview('api')" :disabled="logViewer.loading">Refresh</button>
+                                        <button class="px-2 py-1 border rounded text-xs" @click="downloadLog('api')">Download</button>
+                                    </div>
+                                </div>
+                                <pre class="bg-slate-900 text-slate-100 text-[11px] rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ logViewer.api.length ? logViewer.api.join('\n') : 'No log data' }}</pre>
+                            </div>
+                            <div class="border rounded-lg p-3 space-y-2">
+                                <div class="flex items-center justify-between text-sm">
+                                    <h3 class="font-semibold">Audit Log</h3>
+                                    <div class="flex gap-2">
+                                        <button class="px-2 py-1 border rounded text-xs" @click="refreshLogPreview('audit')" :disabled="logViewer.loading">Refresh</button>
+                                        <button class="px-2 py-1 border rounded text-xs" @click="downloadLog('audit')">Download</button>
+                                    </div>
+                                </div>
+                                <pre class="bg-slate-900 text-slate-100 text-[11px] rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ logViewer.audit.length ? logViewer.audit.join('\n') : 'No log data' }}</pre>
                             </div>
                         </div>
                     </section>
