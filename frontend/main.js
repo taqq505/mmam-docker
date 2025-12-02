@@ -85,7 +85,8 @@ const FIELD_GROUPS = [
     title: "External References",
     fields: [
       { key: "rds_address", label: "RDS Address" },
-      { key: "rds_api_url", label: "RDS API URL" }
+      { key: "rds_api_url", label: "RDS API URL" },
+      { key: "rds_version", label: "RDS Version" }
     ]
   },
   {
@@ -166,6 +167,7 @@ const DEFAULT_FLOW = () => ({
   data_source: "manual",
   rds_address: "",
   rds_api_url: "",
+  rds_version: "",
   user_field1: "",
   user_field2: "",
   user_field3: "",
@@ -716,6 +718,33 @@ createApp({
     }
   },
   methods: {
+    formatTimestamp(value) {
+      if (!value) {
+        return new Date().toLocaleString();
+      }
+      try {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          throw new Error("Invalid date");
+        }
+        return date.toLocaleString();
+      } catch {
+        return value;
+      }
+    },
+    canAccessChecker() {
+      return Boolean(
+        this.token &&
+        this.currentUser &&
+        (this.currentUser.role === "editor" || this.currentUser.role === "admin")
+      );
+    },
+    resetCheckerResults() {
+      this.checkerResults = {
+        collisions: null,
+        nmos: null
+      };
+    },
     initializeViewFromHash() {
       const hashView = window.location.hash.replace("#", "");
       const initialView = this.views.includes(hashView) ? hashView : this.currentView;
@@ -741,6 +770,9 @@ createApp({
         this.currentUser.role === "admin"
       ) {
         this.refreshAllLogs();
+      }
+      if (changed && validView === "checker" && this.canAccessChecker()) {
+        this.fetchLatestCheckerResults();
       }
       if (changed && validView === "newFlow" && !this.editingFlowId) {
         this.resetFlowForm();
@@ -911,6 +943,11 @@ createApp({
           this.users = [];
         }
         await this.refreshFlows();
+        if (this.canAccessChecker()) {
+          await this.fetchLatestCheckerResults();
+        } else {
+          this.resetCheckerResults();
+        }
       } catch (err) {
         console.error(err);
         this.log(err.message);
@@ -921,6 +958,7 @@ createApp({
       this.token = null;
       this.currentUser = null;
       this.teardownRealtime();
+      this.resetCheckerResults();
       this.log("Logged out");
       this.notify("Logged out", "success", 1500);
     },
@@ -928,6 +966,7 @@ createApp({
       this.token = null;
       this.currentUser = null;
       this.teardownRealtime();
+      this.resetCheckerResults();
       this.currentView = "dashboard";
       this.notify("Session expired. Please log in again / セッションが期限切れです。再度ログインしてください。", "error", 5000);
     },
@@ -1349,7 +1388,60 @@ createApp({
         const data = await resp.json();
         delete data.lock_toggle_allowed;
         this.detailFlow = data;
-        this.detailEntries = Object.entries(data);
+
+        // Build grouped entries using FIELD_GROUPS structure
+        const groupedEntries = [];
+
+        // Add system fields group (created_at, updated_at)
+        const systemFields = [
+          { key: 'created_at', label: 'Created At' },
+          { key: 'updated_at', label: 'Updated At' },
+          { key: 'locked', label: 'Locked' }
+        ];
+
+        for (const group of FIELD_GROUPS) {
+          const groupData = {
+            title: group.title,
+            fields: []
+          };
+
+          for (const field of group.fields) {
+            const value = data[field.key];
+            if (value !== undefined && value !== null && value !== '') {
+              groupData.fields.push({
+                key: field.key,
+                label: field.label,
+                value: value
+              });
+            }
+          }
+
+          // Only add group if it has fields with values
+          if (groupData.fields.length > 0) {
+            groupedEntries.push(groupData);
+          }
+        }
+
+        // Add system metadata group
+        const systemGroup = {
+          title: 'System Metadata',
+          fields: []
+        };
+        for (const field of systemFields) {
+          const value = data[field.key];
+          if (value !== undefined && value !== null && value !== '') {
+            systemGroup.fields.push({
+              key: field.key,
+              label: field.label,
+              value: value
+            });
+          }
+        }
+        if (systemGroup.fields.length > 0) {
+          groupedEntries.push(systemGroup);
+        }
+
+        this.detailEntries = groupedEntries;
       } catch (err) {
         this.log(err.message);
         this.notify(err.message, "error");
@@ -1755,6 +1847,41 @@ createApp({
     setCheckerTab(key) {
       this.currentCheckerTab = key;
     },
+    async fetchLatestCheckerResults() {
+      if (!this.canAccessChecker()) return;
+      await Promise.all(this.checkerTabs.map(tab => this.fetchLatestChecker(tab.key)));
+    },
+    async fetchLatestChecker(kind) {
+      if (!this.canAccessChecker()) return;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/checker/latest?kind=${kind}`, {
+          headers: this.authHeaders()
+        });
+        await this.handleFetchResponse(resp);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to fetch ${kind} checker result: ${resp.status} ${text}`);
+        }
+        const data = await resp.json();
+        if (data && data.result) {
+          const enriched = {
+            ...data.result,
+            fetchedAt: this.formatTimestamp(data.result.fetchedAt || data.created_at)
+          };
+          this.checkerResults = {
+            ...this.checkerResults,
+            [kind]: enriched
+          };
+        } else {
+          this.checkerResults = {
+            ...this.checkerResults,
+            [kind]: null
+          };
+        }
+      } catch (err) {
+        this.log(err.message);
+      }
+    },
     async runCollisionCheck() {
       if (!this.token) {
         this.notify("Please log in to run the checker", "error");
@@ -1768,9 +1895,10 @@ createApp({
         if (!resp.ok) throw new Error(`Failed to run collision check: ${resp.status}`);
         const data = await resp.json();
         this.checkerResults.collisions = {
-          fetchedAt: new Date().toLocaleString(),
-          results: data.results || []
+          ...data,
+          fetchedAt: this.formatTimestamp(data.fetchedAt)
         };
+        await this.fetchLatestChecker("collisions");
         this.notify("Collision check completed");
       } catch (err) {
         this.log(err.message);
@@ -1792,12 +1920,14 @@ createApp({
         if (!resp.ok) throw new Error(`Failed to run NMOS check: ${resp.status}`);
         const data = await resp.json();
         this.checkerResults.nmos = {
-          fetchedAt: new Date().toLocaleString(),
+          ...data,
+          fetchedAt: this.formatTimestamp(data.fetchedAt),
           checked: data.checked || 0,
           skipped: data.skipped || 0,
           differences: data.differences || [],
           errors: data.errors || []
         };
+        await this.fetchLatestChecker("nmos");
         const diffCount = this.checkerResults.nmos.differences.length;
         this.notify(`NMOS check completed (${diffCount} difference${diffCount === 1 ? "" : "s"})`);
       } catch (err) {

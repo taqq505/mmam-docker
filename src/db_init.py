@@ -162,6 +162,7 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         data_source TEXT CHECK (data_source IN ('manual', 'nmos', 'rds')) DEFAULT 'manual',
         rds_address TEXT,
         rds_api_url TEXT,
+        rds_version TEXT,
 
         -- User fields
         user_field1 TEXT,
@@ -188,6 +189,21 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
     cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is04_base_url TEXT;")
     cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS nmos_is05_base_url TEXT;")
     cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+    cur.execute("ALTER TABLE flows ADD COLUMN IF NOT EXISTS rds_version TEXT;")
+    conn.commit()
+
+    # --------------------------------------------------------
+    # Checker run history
+    # --------------------------------------------------------
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS checker_runs (
+        kind TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        result JSONB NOT NULL,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     conn.commit()
 
     # --------------------------------------------------------

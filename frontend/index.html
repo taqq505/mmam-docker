@@ -2195,31 +2195,38 @@
                     <p v-if="nmos.error && nmos.targetFlowId === detailFlow?.flow_id" class="px-6 pt-3 text-xs text-red-600">
                         {{ nmos.error }}
                     </p>
-                    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div
-                            v-for="entry in detailEntries"
-                            :key="entry[0]"
-                            class="border rounded p-3 flex flex-col gap-1"
-                            :class="isNmosDiff(entry[0], detailFlow.flow_id) ? 'border-red-400 bg-red-50' : ''"
-                        >
-                            <div class="flex items-center justify-between">
-                                <p class="text-xs text-slate-500 uppercase tracking-wide" v-text="entry[0]"></p>
-                                <button
-                                    class="text-[10px] px-2 py-0.5 border rounded text-slate-600 hover:bg-slate-100"
-                                    @click="copyToClipboard(entry[1])"
+                    <div class="p-6 space-y-4">
+                        <!-- Grouped Display (Same style as Edit screen) -->
+                        <div v-for="group in detailEntries" :key="group.title" class="border rounded p-4">
+                            <h3 class="font-semibold text-base mb-3">{{ group.title }}</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div
+                                    v-for="field in group.fields"
+                                    :key="field.key"
+                                    class="text-xs text-slate-500 space-y-1"
                                 >
-                                    Copy
-                                </button>
+                                    <div class="flex items-center justify-between">
+                                        <label>{{ field.label }}</label>
+                                        <button
+                                            class="text-[10px] px-2 py-0.5 border rounded text-slate-600 hover:bg-slate-100"
+                                            @click="copyToClipboard(field.value)"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                    <div
+                                        :class="['w-full border rounded px-3 py-2 bg-slate-50 font-mono text-xs break-words whitespace-pre-wrap', isNmosDiff(field.key, detailFlow.flow_id) ? 'border-red-500 ring-1 ring-red-400 bg-red-50' : '']"
+                                    >{{ field.value }}</div>
+                                    <p
+                                        v-if="isNmosDiff(field.key, detailFlow.flow_id)"
+                                        class="text-[11px] text-red-600 font-mono"
+                                    >
+                                        NMOS: {{ nmosDiffValue(field.key)?.nmos ?? '' }}
+                                    </p>
+                                </div>
                             </div>
-                            <p class="font-mono text-xs break-words whitespace-pre-wrap" v-text="entry[1]"></p>
-                            <p
-                                v-if="isNmosDiff(entry[0], detailFlow.flow_id)"
-                                class="text-[11px] text-red-600 font-mono break-words"
-                            >
-                                NMOS: {{ nmosDiffValue(entry[0])?.nmos ?? '' }}
-                            </p>
                         </div>
-                        <p v-if="detailEntries.length === 0" class="text-center text-xs text-slate-500">No data.</p>
+                        <p v-if="detailEntries.length === 0" class="text-center text-sm text-slate-500 py-8">No data.</p>
                     </div>
                 </div>
             </div>

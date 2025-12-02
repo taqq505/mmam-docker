@@ -8,7 +8,7 @@ from app.db import get_db_connection
 from app import nmos_client, settings_store, mqtt_client
 from app.auth import require_roles, decode_token
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Iterable
 
 # --------------------------------------------------------
@@ -18,6 +18,8 @@ from typing import List, Iterable
 router = APIRouter()
 logger = logging.getLogger("mmam.flows")
 audit_logger = logging.getLogger("mmam.audit")
+
+CHECKER_KINDS = {"collisions", "nmos"}
 
 TEXT_FILTER_FIELDS = {
     "flow_id", "display_name",
@@ -108,6 +110,72 @@ FLOW_UPSERT_SQL = f"""
         {FLOW_UPDATE_ASSIGNMENTS},
         updated_at = NOW();
 """
+
+
+def _record_checker_run(kind: str, payload: dict, status: str = "success", actor: str | None = None):
+    if kind not in CHECKER_KINDS:
+        return
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO checker_runs (kind, status, result, created_by, created_at)
+            VALUES (%s, %s, %s::JSONB, %s, NOW())
+            ON CONFLICT (kind) DO UPDATE SET
+                status = EXCLUDED.status,
+                result = EXCLUDED.result,
+                created_by = EXCLUDED.created_by,
+                created_at = EXCLUDED.created_at;
+            """,
+            (kind, status, json.dumps(payload), actor)
+        )
+        conn.commit()
+    except Exception as exc:  # pragma: no cover - best effort logging
+        logger.exception("Failed to record checker run (%s): %s", kind, exc)
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+
+def _fetch_latest_checker_run(kind: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT kind, status, result, created_by, created_at
+        FROM checker_runs
+        WHERE kind=%s
+        ORDER BY created_at DESC
+        LIMIT 1;
+        """,
+        (kind,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    result_payload = row[2]
+    if isinstance(result_payload, str):
+        try:
+            result_payload = json.loads(result_payload)
+        except json.JSONDecodeError:
+            result_payload = {"raw": row[2]}
+    return {
+        "kind": row[0],
+        "status": row[1],
+        "result": result_payload,
+        "created_by": row[3],
+        "created_at": row[4].isoformat() if row[4] else None
+    }
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _parse_datetime(value: str, label: str) -> datetime:
@@ -747,11 +815,23 @@ def collision_checker(user=Depends(require_roles("editor", "admin"))):
                 "label": label,
                 "entries": entries
             })
-    finally:
+    except Exception as exc:
+        _record_checker_run("collisions", {"error": str(exc)}, "error", user["username"])
         cur.close()
         conn.close()
+        raise
+    finally:
+        if not cur.closed:
+            cur.close()
+        if not conn.closed:
+            conn.close()
 
-    return {"results": results}
+    payload = {
+        "results": results,
+        "fetchedAt": _utcnow_iso()
+    }
+    _record_checker_run("collisions", payload, "success", user["username"])
+    return payload
 
 
 @router.get("/checker/nmos")
@@ -759,44 +839,61 @@ def nmos_checker(
     timeout: int = 5,
     user=Depends(require_roles("editor", "admin"))
 ):
-    all_flows = _fetch_all_flows()
-    eligible = [flow for flow in all_flows if _flow_has_nmos_sources(flow)]
-    skipped = len(all_flows) - len(eligible)
-    differences = []
-    errors = []
-    for flow in eligible:
-        try:
-            snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
-            diff = _diff_flow_fields(flow, snapshot)
-            if diff:
-                differences.append({
+    try:
+        all_flows = _fetch_all_flows()
+        eligible = [flow for flow in all_flows if _flow_has_nmos_sources(flow)]
+        skipped = len(all_flows) - len(eligible)
+        differences = []
+        errors = []
+        for flow in eligible:
+            try:
+                snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
+                diff = _diff_flow_fields(flow, snapshot)
+                if diff:
+                    differences.append({
+                        "flow_id": flow.get("flow_id"),
+                        "display_name": flow.get("display_name"),
+                        "nmos_node_label": flow.get("nmos_node_label"),
+                        "difference_count": len(diff),
+                        "fields": list(diff.keys()),
+                        "details": diff
+                    })
+            except HTTPException as exc:
+                reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                errors.append({
                     "flow_id": flow.get("flow_id"),
                     "display_name": flow.get("display_name"),
-                    "nmos_node_label": flow.get("nmos_node_label"),
-                    "difference_count": len(diff),
-                    "fields": list(diff.keys()),
-                    "details": diff
+                    "reason": reason
                 })
-        except HTTPException as exc:
-            reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-            errors.append({
-                "flow_id": flow.get("flow_id"),
-                "display_name": flow.get("display_name"),
-                "reason": reason
-            })
-        except Exception as exc:
-            errors.append({
-                "flow_id": flow.get("flow_id"),
-                "display_name": flow.get("display_name"),
-                "reason": str(exc)
-            })
-    return {
-        "checked": len(eligible),
-        "skipped": skipped,
-        "differences": differences,
-        "errors": errors,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+            except Exception as exc:
+                errors.append({
+                    "flow_id": flow.get("flow_id"),
+                    "display_name": flow.get("display_name"),
+                    "reason": str(exc)
+                })
+        payload = {
+            "checked": len(eligible),
+            "skipped": skipped,
+            "differences": differences,
+            "errors": errors,
+            "fetchedAt": _utcnow_iso()
+        }
+        _record_checker_run("nmos", payload, "success", user["username"])
+        return payload
+    except Exception as exc:
+        _record_checker_run("nmos", {"error": str(exc)}, "error", user["username"])
+        raise
+
+
+@router.get("/checker/latest")
+def latest_checker_result(
+    kind: str = Query(..., regex="^(collisions|nmos)$"),
+    user=Depends(require_roles("editor", "admin"))
+):
+    record = _fetch_latest_checker_run(kind)
+    if not record:
+        return {"kind": kind, "status": "empty", "result": None}
+    return record
 
 
 @router.get("/flows/{flow_id}")
