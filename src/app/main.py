@@ -10,7 +10,9 @@ from app.routers import settings as settings_router  # noqa: E402
 from app.routers import nmos as nmos_router  # noqa: E402
 from app.routers import address_map as address_map_router  # noqa: E402
 from app.routers import logs as logs_router  # noqa: E402
+from app.routers import automation as automation_router  # noqa: E402
 from app import mqtt_client  # noqa: E402
+from app import scheduler  # noqa: E402
 from db_init import init_db  # noqa: E402
 
 logger = logging.getLogger("mmam.app")
@@ -40,9 +42,25 @@ def startup_event():
     mqtt_client.ensure_client()
     logger.info("MQTT client ready")
 
+    # Initialize and start scheduler
+    try:
+        scheduler.init_scheduler()
+        scheduler.start_scheduler()
+        logger.info("Scheduler started")
+    except Exception as e:
+        logger.exception("Scheduler startup failed: %s", e)
+        # Continue even if scheduler fails (fallback)
+
 
 @app.on_event("shutdown")
 def shutdown_event():
+    # Stop scheduler
+    try:
+        scheduler.stop_scheduler()
+        logger.info("Scheduler stopped")
+    except Exception as e:
+        logger.exception("Scheduler shutdown failed: %s", e)
+
     mqtt_client.shutdown()
     logger.info("Shutdown complete")
 
@@ -56,6 +74,7 @@ app.include_router(settings_router.router, prefix="/api")
 app.include_router(nmos_router.router, prefix="/api")
 app.include_router(address_map_router.router, prefix="/api")
 app.include_router(logs_router.router, prefix="/api")
+app.include_router(automation_router.router, prefix="/api")
 
 # --------------------------------------------------------
 # Health check

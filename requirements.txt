@@ -6,3 +6,4 @@ PyJWT
 python-multipart
 requests
 paho-mqtt
+APScheduler==3.10.4

@@ -178,6 +178,61 @@
                         </li>
                     </ul>
                 </section>
+                <section class="bg-white p-4 rounded shadow-lg space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-semibold text-lg">Latest Check Results / 最新チェック結果</h2>
+                        <button
+                            v-if="automationSummary"
+                            class="text-xs text-slate-500 hover:text-slate-700"
+                            @click="loadAutomationSummary"
+                        >
+                            🔄 Refresh
+                        </button>
+                    </div>
+                    <div v-if="automationSummary" class="space-y-3">
+                        <div class="bg-amber-50 border border-amber-200 rounded p-3 text-center">
+                            <div class="text-3xl font-bold text-amber-600">
+                                {{ automationSummary.total_alerts }}
+                            </div>
+                            <div class="text-xs text-amber-700">Total Alerts / アラーム合計</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 text-center text-sm">
+                            <div class="bg-slate-50 rounded p-3">
+                                <div class="text-xl font-bold text-red-600">
+                                    {{ automationSummary.collision_count }}
+                                </div>
+                                <div class="text-xs text-slate-600">Collisions / コリジョン</div>
+                            </div>
+                            <div class="bg-slate-50 rounded p-3">
+                                <div class="text-xl font-bold text-orange-600">
+                                    {{ automationSummary.nmos_difference_count }}
+                                </div>
+                                <div class="text-xs text-slate-600">NMOS Diffs / NMOS差分</div>
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-400 text-center">
+                            Last updated: {{ automationSummary.last_updated || 'N/A' }}
+                        </div>
+                        <div class="text-center">
+                            <button
+                                class="text-sm text-blue-600 hover:text-blue-800 underline"
+                                @click="navigate('checker')"
+                            >
+                                View Details / 詳細を確認 →
+                            </button>
+                        </div>
+                    </div>
+                    <div v-else class="text-center py-6 text-slate-400 text-sm">
+                        <p>No check results yet.</p>
+                        <p class="text-xs">チェック未実行</p>
+                        <button
+                            class="mt-3 text-sm text-blue-600 hover:text-blue-800 underline"
+                            @click="navigate('checker')"
+                        >
+                            Run Checks / チェックを実行 →
+                        </button>
+                    </div>
+                </section>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1607,6 +1662,133 @@
                                 </button>
                             </div>
                         </div>
+
+                        <!-- Collision Automation Settings -->
+                        <div class="border border-slate-300 rounded p-4 bg-slate-50 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-semibold text-base">Scheduled Automation / 自動周回設定</h3>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        class="w-4 h-4"
+                                        v-model="collisionJob.enabled"
+                                        @change="toggleCollisionJob"
+                                        :disabled="!canEditAutomation"
+                                    />
+                                    <span class="text-sm font-medium">
+                                        {{ collisionJob.enabled ? 'Enabled / 有効' : 'Disabled / 無効' }}
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div v-if="collisionJob.enabled || editingCollisionSchedule" class="space-y-3">
+                                <div>
+                                    <label class="text-sm font-medium text-slate-700">Schedule Type / スケジュール種類</label>
+                                    <div class="flex gap-4 mt-1">
+                                        <label class="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                value="interval"
+                                                v-model="collisionJob.schedule_type"
+                                            />
+                                            <span class="text-sm">Interval / 間隔指定</span>
+                                        </label>
+                                        <label class="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                value="cron"
+                                                v-model="collisionJob.schedule_type"
+                                            />
+                                            <span class="text-sm">Cron Expression / Cron式</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div v-if="collisionJob.schedule_type === 'interval'" class="flex items-center gap-2">
+                                    <label class="text-sm font-medium text-slate-700">Run every / 実行間隔:</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        class="w-20 border rounded px-2 py-1 text-sm"
+                                        v-model.number="collisionIntervalValue"
+                                    />
+                                    <select
+                                        class="border rounded px-2 py-1 text-sm"
+                                        v-model="collisionIntervalUnit"
+                                    >
+                                        <option value="60">minutes / 分</option>
+                                        <option value="3600">hours / 時間</option>
+                                        <option value="86400">days / 日</option>
+                                        <option value="604800">weeks / 週</option>
+                                    </select>
+                                </div>
+
+                                <div v-else class="space-y-2">
+                                    <label class="text-sm font-medium text-slate-700">Cron Expression / Cron式</label>
+                                    <input
+                                        type="text"
+                                        class="w-full border rounded px-3 py-2 text-sm font-mono"
+                                        placeholder="0 0 * * *  (minute hour day month weekday)"
+                                        v-model="collisionJob.schedule_value"
+                                    />
+                                    <div class="text-xs text-slate-500 space-y-1">
+                                        <p>Examples / 例:</p>
+                                        <ul class="list-disc list-inside pl-2">
+                                            <li><code class="bg-white px-1">0 0 * * *</code> - Every day at 00:00 / 毎日0時</li>
+                                            <li><code class="bg-white px-1">0 */6 * * *</code> - Every 6 hours / 6時間ごと</li>
+                                            <li><code class="bg-white px-1">0 9 * * 1</code> - Every Monday at 09:00 / 毎週月曜9時</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div v-if="collisionJob.next_run_time" class="text-sm text-slate-600">
+                                    <span class="font-medium">Next run / 次回実行予定:</span>
+                                    <span class="ml-2">{{ collisionJob.next_run_time }}</span>
+                                </div>
+
+                                <div class="flex gap-2">
+                                    <button
+                                        class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                                        @click="saveCollisionSchedule"
+                                        :disabled="!canEditAutomation"
+                                    >
+                                        Save Schedule / スケジュールを保存
+                                    </button>
+                                    <button
+                                        v-if="editingCollisionSchedule"
+                                        class="px-4 py-2 bg-slate-300 text-slate-700 rounded text-sm hover:bg-slate-400"
+                                        @click="cancelEditCollisionSchedule"
+                                    >
+                                        Cancel / キャンセル
+                                    </button>
+                                </div>
+
+                                <div v-if="collisionJob.last_run_at" class="border-t pt-3 mt-3 text-xs text-slate-500">
+                                    <p><span class="font-medium">Last run / 最終実行:</span> {{ collisionJob.last_run_at }}</p>
+                                    <p v-if="collisionJob.last_run_status">
+                                        <span class="font-medium">Status / ステータス:</span>
+                                        <span :class="collisionJob.last_run_status === 'success' ? 'text-emerald-600' : 'text-red-600'">
+                                            {{ collisionJob.last_run_status }}
+                                        </span>
+                                    </p>
+                                    <p v-if="collisionJob.last_run_result && collisionJob.last_run_result.collision_count !== undefined">
+                                        <span class="font-medium">Result / 結果:</span>
+                                        {{ collisionJob.last_run_result.collision_count }} collisions detected
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div v-else class="text-sm text-slate-500 text-center py-2">
+                                Enable automation to configure schedule / 自動実行を有効化してスケジュールを設定
+                            </div>
+
+                            <div v-if="!canEditAutomation" class="bg-yellow-50 border border-yellow-200 rounded p-3">
+                                <p class="text-sm text-yellow-800">
+                                    ⚠️ Admin permission required to modify automation settings. / 自動化設定の変更にはAdmin権限が必要です。
+                                </p>
+                            </div>
+                        </div>
+
                         <div v-if="checkerResults.collisions">
                             <p class="text-xs text-slate-500">Last executed: {{ checkerResults.collisions.fetchedAt }}</p>
                             <div v-for="group in checkerResults.collisions.results" :key="group.field" class="border rounded p-4 mb-4">
@@ -1681,6 +1863,133 @@
                                 </button>
                             </div>
                         </div>
+
+                        <!-- NMOS Automation Settings -->
+                        <div class="border border-slate-300 rounded p-4 bg-slate-50 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-semibold text-base">Scheduled Automation / 自動周回設定</h3>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        class="w-4 h-4"
+                                        v-model="nmosJob.enabled"
+                                        @change="toggleNmosJob"
+                                        :disabled="!canEditAutomation"
+                                    />
+                                    <span class="text-sm font-medium">
+                                        {{ nmosJob.enabled ? 'Enabled / 有効' : 'Disabled / 無効' }}
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div v-if="nmosJob.enabled || editingNmosSchedule" class="space-y-3">
+                                <div>
+                                    <label class="text-sm font-medium text-slate-700">Schedule Type / スケジュール種類</label>
+                                    <div class="flex gap-4 mt-1">
+                                        <label class="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                value="interval"
+                                                v-model="nmosJob.schedule_type"
+                                            />
+                                            <span class="text-sm">Interval / 間隔指定</span>
+                                        </label>
+                                        <label class="flex items-center gap-2">
+                                            <input
+                                                type="radio"
+                                                value="cron"
+                                                v-model="nmosJob.schedule_type"
+                                            />
+                                            <span class="text-sm">Cron Expression / Cron式</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div v-if="nmosJob.schedule_type === 'interval'" class="flex items-center gap-2">
+                                    <label class="text-sm font-medium text-slate-700">Run every / 実行間隔:</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        class="w-20 border rounded px-2 py-1 text-sm"
+                                        v-model.number="nmosIntervalValue"
+                                    />
+                                    <select
+                                        class="border rounded px-2 py-1 text-sm"
+                                        v-model="nmosIntervalUnit"
+                                    >
+                                        <option value="60">minutes / 分</option>
+                                        <option value="3600">hours / 時間</option>
+                                        <option value="86400">days / 日</option>
+                                        <option value="604800">weeks / 週</option>
+                                    </select>
+                                </div>
+
+                                <div v-else class="space-y-2">
+                                    <label class="text-sm font-medium text-slate-700">Cron Expression / Cron式</label>
+                                    <input
+                                        type="text"
+                                        class="w-full border rounded px-3 py-2 text-sm font-mono"
+                                        placeholder="0 0 * * *  (minute hour day month weekday)"
+                                        v-model="nmosJob.schedule_value"
+                                    />
+                                    <div class="text-xs text-slate-500 space-y-1">
+                                        <p>Examples / 例:</p>
+                                        <ul class="list-disc list-inside pl-2">
+                                            <li><code class="bg-white px-1">0 0 * * *</code> - Every day at 00:00 / 毎日0時</li>
+                                            <li><code class="bg-white px-1">0 */6 * * *</code> - Every 6 hours / 6時間ごと</li>
+                                            <li><code class="bg-white px-1">0 9 * * 1</code> - Every Monday at 09:00 / 毎週月曜9時</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div v-if="nmosJob.next_run_time" class="text-sm text-slate-600">
+                                    <span class="font-medium">Next run / 次回実行予定:</span>
+                                    <span class="ml-2">{{ nmosJob.next_run_time }}</span>
+                                </div>
+
+                                <div class="flex gap-2">
+                                    <button
+                                        class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                                        @click="saveNmosSchedule"
+                                        :disabled="!canEditAutomation"
+                                    >
+                                        Save Schedule / スケジュールを保存
+                                    </button>
+                                    <button
+                                        v-if="editingNmosSchedule"
+                                        class="px-4 py-2 bg-slate-300 text-slate-700 rounded text-sm hover:bg-slate-400"
+                                        @click="cancelEditNmosSchedule"
+                                    >
+                                        Cancel / キャンセル
+                                    </button>
+                                </div>
+
+                                <div v-if="nmosJob.last_run_at" class="border-t pt-3 mt-3 text-xs text-slate-500">
+                                    <p><span class="font-medium">Last run / 最終実行:</span> {{ nmosJob.last_run_at }}</p>
+                                    <p v-if="nmosJob.last_run_status">
+                                        <span class="font-medium">Status / ステータス:</span>
+                                        <span :class="nmosJob.last_run_status === 'success' ? 'text-emerald-600' : 'text-red-600'">
+                                            {{ nmosJob.last_run_status }}
+                                        </span>
+                                    </p>
+                                    <p v-if="nmosJob.last_run_result && nmosJob.last_run_result.nmos_difference_count !== undefined">
+                                        <span class="font-medium">Result / 結果:</span>
+                                        {{ nmosJob.last_run_result.nmos_difference_count }} differences detected
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div v-else class="text-sm text-slate-500 text-center py-2">
+                                Enable automation to configure schedule / 自動実行を有効化してスケジュールを設定
+                            </div>
+
+                            <div v-if="!canEditAutomation" class="bg-yellow-50 border border-yellow-200 rounded p-3">
+                                <p class="text-sm text-yellow-800">
+                                    ⚠️ Admin permission required to modify automation settings. / 自動化設定の変更にはAdmin権限が必要です。
+                                </p>
+                            </div>
+                        </div>
+
                         <div v-if="checkerResults.nmos">
                             <p class="text-xs text-slate-500">
                                 Last executed: {{ checkerResults.nmos.fetchedAt }} /

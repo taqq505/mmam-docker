@@ -262,6 +262,37 @@ def init_db(max_retries: int = 10, wait_sec: int = 3):
         """, (key, value))
     conn.commit()
 
+    # --------------------------------------------------------
+    # Scheduled jobs table (for automation)
+    # --------------------------------------------------------
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS scheduled_jobs (
+        job_id TEXT PRIMARY KEY,
+        job_type TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        schedule_type TEXT NOT NULL,
+        schedule_value TEXT NOT NULL,
+        last_run_at TIMESTAMP,
+        last_run_status TEXT,
+        last_run_result JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    conn.commit()
+
+    # Insert default jobs
+    cur.execute("""
+        INSERT INTO scheduled_jobs (job_id, job_type, enabled, schedule_type, schedule_value)
+        VALUES ('collision_check', 'collision_check', FALSE, 'interval', '1800')
+        ON CONFLICT (job_id) DO NOTHING;
+    """)
+    cur.execute("""
+        INSERT INTO scheduled_jobs (job_id, job_type, enabled, schedule_type, schedule_value)
+        VALUES ('nmos_check', 'nmos_check', FALSE, 'interval', '3600')
+        ON CONFLICT (job_id) DO NOTHING;
+    """)
+    conn.commit()
 
     # --------------------------------------------------------
     # Insert initial admin user (optional)

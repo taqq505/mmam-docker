@@ -780,8 +780,14 @@ def import_flows(payload: List[Flow], user=Depends(require_roles("admin"))):
     }
 
 
-@router.get("/checker/collisions")
-def collision_checker(user=Depends(require_roles("editor", "admin"))):
+def _collision_checker_core():
+    """
+    Core collision checker logic (without authentication).
+    認証なしのコリジョンチェッカーコアロジック
+
+    Returns:
+        list: Collision check results
+    """
     conn = get_db_connection()
     cur = conn.cursor()
     results = []
@@ -815,23 +821,78 @@ def collision_checker(user=Depends(require_roles("editor", "admin"))):
                 "label": label,
                 "entries": entries
             })
-    except Exception as exc:
-        _record_checker_run("collisions", {"error": str(exc)}, "error", user["username"])
-        cur.close()
-        conn.close()
-        raise
+        return results
     finally:
         if not cur.closed:
             cur.close()
         if not conn.closed:
             conn.close()
 
-    payload = {
-        "results": results,
+
+@router.get("/checker/collisions")
+def collision_checker(user=Depends(require_roles("editor", "admin"))):
+    try:
+        results = _collision_checker_core()
+        payload = {
+            "results": results,
+            "fetchedAt": _utcnow_iso()
+        }
+        _record_checker_run("collisions", payload, "success", user["username"])
+        return payload
+    except Exception as exc:
+        _record_checker_run("collisions", {"error": str(exc)}, "error", user["username"])
+        raise
+
+
+def _nmos_checker_core(timeout: int = 5):
+    """
+    Core NMOS checker logic (without authentication).
+    認証なしのNMOSチェッカーコアロジック
+
+    Args:
+        timeout: Timeout in seconds for NMOS requests
+
+    Returns:
+        dict: NMOS check results
+    """
+    all_flows = _fetch_all_flows()
+    eligible = [flow for flow in all_flows if _flow_has_nmos_sources(flow)]
+    skipped = len(all_flows) - len(eligible)
+    differences = []
+    errors = []
+    for flow in eligible:
+        try:
+            snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
+            diff = _diff_flow_fields(flow, snapshot)
+            if diff:
+                differences.append({
+                    "flow_id": flow.get("flow_id"),
+                    "display_name": flow.get("display_name"),
+                    "nmos_node_label": flow.get("nmos_node_label"),
+                    "difference_count": len(diff),
+                    "fields": list(diff.keys()),
+                    "details": diff
+                })
+        except HTTPException as exc:
+            reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            errors.append({
+                "flow_id": flow.get("flow_id"),
+                "display_name": flow.get("display_name"),
+                "reason": reason
+            })
+        except Exception as exc:
+            errors.append({
+                "flow_id": flow.get("flow_id"),
+                "display_name": flow.get("display_name"),
+                "reason": str(exc)
+            })
+    return {
+        "checked": len(eligible),
+        "skipped": skipped,
+        "differences": differences,
+        "errors": errors,
         "fetchedAt": _utcnow_iso()
     }
-    _record_checker_run("collisions", payload, "success", user["username"])
-    return payload
 
 
 @router.get("/checker/nmos")
@@ -840,44 +901,7 @@ def nmos_checker(
     user=Depends(require_roles("editor", "admin"))
 ):
     try:
-        all_flows = _fetch_all_flows()
-        eligible = [flow for flow in all_flows if _flow_has_nmos_sources(flow)]
-        skipped = len(all_flows) - len(eligible)
-        differences = []
-        errors = []
-        for flow in eligible:
-            try:
-                snapshot = _fetch_nmos_snapshot(flow, timeout=timeout)
-                diff = _diff_flow_fields(flow, snapshot)
-                if diff:
-                    differences.append({
-                        "flow_id": flow.get("flow_id"),
-                        "display_name": flow.get("display_name"),
-                        "nmos_node_label": flow.get("nmos_node_label"),
-                        "difference_count": len(diff),
-                        "fields": list(diff.keys()),
-                        "details": diff
-                    })
-            except HTTPException as exc:
-                reason = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-                errors.append({
-                    "flow_id": flow.get("flow_id"),
-                    "display_name": flow.get("display_name"),
-                    "reason": reason
-                })
-            except Exception as exc:
-                errors.append({
-                    "flow_id": flow.get("flow_id"),
-                    "display_name": flow.get("display_name"),
-                    "reason": str(exc)
-                })
-        payload = {
-            "checked": len(eligible),
-            "skipped": skipped,
-            "differences": differences,
-            "errors": errors,
-            "fetchedAt": _utcnow_iso()
-        }
+        payload = _nmos_checker_core(timeout)
         _record_checker_run("nmos", payload, "success", user["username"])
         return payload
     except Exception as exc:

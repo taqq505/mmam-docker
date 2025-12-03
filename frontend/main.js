@@ -295,6 +295,35 @@ createApp({
         collisions: null,
         nmos: null
       },
+      // Automation
+      automationJobs: [],
+      automationSummary: null,
+      collisionJob: {
+        job_id: 'collision_check',
+        enabled: false,
+        schedule_type: 'interval',
+        schedule_value: '1800',
+        last_run_at: null,
+        last_run_status: null,
+        last_run_result: null,
+        next_run_time: null
+      },
+      nmosJob: {
+        job_id: 'nmos_check',
+        enabled: false,
+        schedule_type: 'interval',
+        schedule_value: '3600',
+        last_run_at: null,
+        last_run_status: null,
+        last_run_result: null,
+        next_run_time: null
+      },
+      collisionIntervalValue: 30,
+      collisionIntervalUnit: '60',
+      nmosIntervalValue: 60,
+      nmosIntervalUnit: '60',
+      editingCollisionSchedule: false,
+      editingNmosSchedule: false,
       newUser: {
         username: "",
         password: "",
@@ -457,6 +486,8 @@ createApp({
     this.loadMqttOverride();
     this.refreshFlows();
     this.fetchRealtimeConfig();
+    this.loadAutomationJobs();
+    this.loadAutomationSummary();
   },
   beforeUnmount() {
     window.removeEventListener("popstate", this.handlePopState);
@@ -695,6 +726,9 @@ createApp({
     },
     plannerChildParentOptions() {
       return Object.values(this.planner.folderNodes).filter(node => node && node.kind === "parent");
+    },
+    canEditAutomation() {
+      return this.currentUser && this.currentUser.role === 'admin';
     }
   },
   watch: {
@@ -1936,6 +1970,161 @@ createApp({
       } finally {
         this.checkerLoading = false;
       }
+    },
+    // --------------------------------------------------------
+    // Automation methods
+    // --------------------------------------------------------
+    async loadAutomationJobs() {
+      if (!this.token) return;
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/automation/jobs`, {
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) throw new Error(`Failed to load automation jobs: ${resp.status}`);
+        const jobs = await resp.json();
+        this.automationJobs = jobs;
+
+        // Update individual job data for collision and nmos
+        const collisionJob = jobs.find(j => j.job_id === 'collision_check');
+        const nmosJob = jobs.find(j => j.job_id === 'nmos_check');
+
+        if (collisionJob) {
+          this.collisionJob = { ...collisionJob };
+        }
+        if (nmosJob) {
+          this.nmosJob = { ...nmosJob };
+        }
+      } catch (err) {
+        console.error('Failed to load automation jobs:', err);
+      }
+    },
+    async loadAutomationSummary() {
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/automation/summary`, {
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) {
+          if (resp.status === 401) {
+            this.automationSummary = null;
+            return;
+          }
+          throw new Error(`Failed to load automation summary: ${resp.status}`);
+        }
+        this.automationSummary = await resp.json();
+      } catch (err) {
+        console.error('Failed to load automation summary:', err);
+        this.automationSummary = null;
+      }
+    },
+    async updateAutomationJob(jobId, config) {
+      if (!this.token) {
+        this.notify("Please log in", "error");
+        return;
+      }
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/automation/jobs/${jobId}`, {
+          method: 'PUT',
+          headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(`Failed to update job: ${resp.status} ${detail}`);
+        }
+        this.notify('Job updated successfully');
+        await this.loadAutomationJobs();
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+        throw err;
+      }
+    },
+    async toggleAutomationJob(jobId, enabled) {
+      if (!this.token) {
+        this.notify("Please log in", "error");
+        return;
+      }
+      try {
+        const endpoint = enabled ? 'enable' : 'disable';
+        const resp = await fetch(`${this.baseUrl}/api/automation/jobs/${jobId}/${endpoint}`, {
+          method: 'POST',
+          headers: this.authHeaders()
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(`Failed to ${endpoint} job: ${resp.status} ${detail}`);
+        }
+        this.notify(`Job ${enabled ? 'enabled' : 'disabled'} successfully`);
+        await this.loadAutomationJobs();
+      } catch (err) {
+        this.log(err.message);
+        this.notify(err.message, "error");
+        throw err;
+      }
+    },
+    async saveCollisionSchedule() {
+      const job = this.collisionJob;
+      let scheduleValue = job.schedule_value;
+
+      // If interval type, calculate seconds from intervalValue and intervalUnit
+      if (job.schedule_type === 'interval') {
+        scheduleValue = String(this.collisionIntervalValue * parseInt(this.collisionIntervalUnit));
+      }
+
+      try {
+        await this.updateAutomationJob('collision_check', {
+          enabled: job.enabled,
+          schedule_type: job.schedule_type,
+          schedule_value: scheduleValue
+        });
+        this.editingCollisionSchedule = false;
+      } catch (err) {
+        // Error already handled in updateAutomationJob
+      }
+    },
+    async saveNmosSchedule() {
+      const job = this.nmosJob;
+      let scheduleValue = job.schedule_value;
+
+      // If interval type, calculate seconds from intervalValue and intervalUnit
+      if (job.schedule_type === 'interval') {
+        scheduleValue = String(this.nmosIntervalValue * parseInt(this.nmosIntervalUnit));
+      }
+
+      try {
+        await this.updateAutomationJob('nmos_check', {
+          enabled: job.enabled,
+          schedule_type: job.schedule_type,
+          schedule_value: scheduleValue
+        });
+        this.editingNmosSchedule = false;
+      } catch (err) {
+        // Error already handled in updateAutomationJob
+      }
+    },
+    async toggleCollisionJob() {
+      try {
+        await this.toggleAutomationJob('collision_check', this.collisionJob.enabled);
+      } catch (err) {
+        // Revert on error
+        this.collisionJob.enabled = !this.collisionJob.enabled;
+      }
+    },
+    async toggleNmosJob() {
+      try {
+        await this.toggleAutomationJob('nmos_check', this.nmosJob.enabled);
+      } catch (err) {
+        // Revert on error
+        this.nmosJob.enabled = !this.nmosJob.enabled;
+      }
+    },
+    cancelEditCollisionSchedule() {
+      this.editingCollisionSchedule = false;
+      this.loadAutomationJobs(); // Reload to revert changes
+    },
+    cancelEditNmosSchedule() {
+      this.editingNmosSchedule = false;
+      this.loadAutomationJobs(); // Reload to revert changes
     },
     async copyToClipboard(text) {
       if (!text) return;
