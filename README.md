@@ -1,9 +1,22 @@
 # mmam-docker
 
+**[🌐 English Documentation](#mmam-docker-english)**
+
+![SMPTE ST 2110](https://img.shields.io/badge/SMPTE-ST%202110-blue)
+![NMOS IS-04](https://img.shields.io/badge/NMOS-IS--04-green)
+![NMOS IS-05](https://img.shields.io/badge/NMOS-IS--05-green)
+![RTP](https://img.shields.io/badge/Protocol-RTP-orange)
+![Multicast](https://img.shields.io/badge/Multicast-IPv4-orange)
+![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688)
+![Vue.js](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791)
+![MQTT](https://img.shields.io/badge/Messaging-MQTT-660066)
+
 Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの名前やメタデータを一元管理するフルスタックパッケージです。FastAPI + PostgreSQL で REST API を公開し、Vue 3 + Tailwind 製のシングルページ UI と Mosquitto MQTT によるリアルタイム通知を同梱しています。
 
 > English description is available in the second half of this document.
 > 本ドキュメント後半に英語版を記載しています。
+> **[Jump to English Documentation](#mmam-docker-english)**
 
 ## 主な特長
 
@@ -430,6 +443,18 @@ MIT License. See `LICENSE`.
 ---
 
 # mmam-docker (English)
+
+**[🇯🇵 日本語ドキュメント](#mmam-docker)**
+
+![SMPTE ST 2110](https://img.shields.io/badge/SMPTE-ST%202110-blue)
+![NMOS IS-04](https://img.shields.io/badge/NMOS-IS--04-green)
+![NMOS IS-05](https://img.shields.io/badge/NMOS-IS--05-green)
+![RTP](https://img.shields.io/badge/Protocol-RTP-orange)
+![Multicast](https://img.shields.io/badge/Multicast-IPv4-orange)
+![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688)
+![Vue.js](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791)
+![MQTT](https://img.shields.io/badge/Messaging-MQTT-660066)
 
 Media Multicast Address Manager (MMAM) is a full-stack toolkit for managing ST 2110 / NMOS flows. It ships with a FastAPI backend, PostgreSQL schema, Vue 3 + Tailwind UI, and Mosquitto for MQTT notifications.
 
