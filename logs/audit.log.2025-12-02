@@ -1,0 +1,57 @@
+2025-12-02 11:43:49 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 11:46:20 | INFO | mmam.audit | flow updated | user=admin | flow_id=94280a03-257c-4d0d-a0ae-b8b84969519b | fields=alias1
+2025-12-02 12:17:17 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 12:24:23 | INFO | mmam.audit | flow created | user=admin | flow_id=039828d5-720e-4675-8fd2-2ca237a18bd1 | restored=false
+2025-12-02 12:24:23 | INFO | mmam.audit | flow created | user=admin | flow_id=0418b502-9ab1-4322-acfe-97058220515f | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=c0a5c331-dc7b-4a80-b93d-f37bc8c71a47 | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=5d100b25-4dc8-4516-a348-0746d9895c9c | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=b5d26373-ad05-4fbc-afd0-688d40cde654 | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=201f6902-dafc-4906-90d7-7ff8a0279d36 | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=8129d9fd-6e8b-4421-8475-9189bcc71064 | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=1aa19688-15c7-433f-bf28-544465c720bf | restored=false
+2025-12-02 12:25:16 | INFO | mmam.audit | flow created | user=admin | flow_id=9928f1f0-bbc0-4e27-ad0d-a160a9317504 | restored=false
+2025-12-02 12:25:56 | INFO | mmam.audit | flows import | user=admin | inserted=26001 | updated=11 | skipped_locked=0
+2025-12-02 12:29:42 | INFO | mmam.audit | user created | actor=admin | target=moipuser | role=viewer
+2025-12-02 12:35:08 | INFO | mmam.audit | flow nmos apply | user=admin | flow_id=201f6902-dafc-4906-90d7-7ff8a0279d36 | fields=sdp_cache
+2025-12-02 12:40:01 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 12:42:34 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 12:44:05 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 13:05:57 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 13:08:04 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 13:08:28 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 13:08:40 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 13:08:55 | INFO | mmam.audit | user updated | actor=admin | target=moipuser | fields=role
+2025-12-02 13:09:10 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 17:35:39 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 19:19:23 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 19:19:58 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 19:51:52 | INFO | mmam.audit | login success | user=moipuser | ip=192.168.20.8
+2025-12-02 19:53:53 | INFO | mmam.audit | flow nmos apply | user=moipuser | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | fields=multicast_addr_a,sdp_cache
+2025-12-02 19:57:29 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=c0a5c331-dc7b-4a80-b93d-f37bc8c71a47 | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=5d100b25-4dc8-4516-a348-0746d9895c9c | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=b5d26373-ad05-4fbc-afd0-688d40cde654 | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=201f6902-dafc-4906-90d7-7ff8a0279d36 | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=8129d9fd-6e8b-4421-8475-9189bcc71064 | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=1aa19688-15c7-433f-bf28-544465c720bf | restored=false
+2025-12-02 20:04:15 | INFO | mmam.audit | flow created | user=admin | flow_id=9928f1f0-bbc0-4e27-ad0d-a160a9317504 | restored=false
+2025-12-02 20:05:07 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:06:04 | INFO | mmam.audit | flow nmos apply | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | fields=multicast_addr_a,sdp_cache
+2025-12-02 20:08:14 | INFO | mmam.audit | flow nmos apply | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | fields=multicast_addr_b,sdp_cache
+2025-12-02 20:08:32 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:13:23 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:15:58 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:18:09 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:22:29 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:32:34 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=true
+2025-12-02 20:32:35 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=false
+2025-12-02 20:32:40 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=true
+2025-12-02 20:32:42 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=false
+2025-12-02 20:32:55 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=true
+2025-12-02 20:32:56 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=false
+2025-12-02 20:32:57 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=true
+2025-12-02 20:32:58 | INFO | mmam.audit | flow lock toggled | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | locked=false
+2025-12-02 20:34:19 | INFO | mmam.audit | flow nmos apply | user=admin | flow_id=35f0c2d7-db37-4972-b53e-4e7424276085 | fields=multicast_addr_a,sdp_cache
+2025-12-02 20:34:33 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
+2025-12-02 20:34:54 | INFO | mmam.audit | login success | user=admin | ip=192.168.20.8
