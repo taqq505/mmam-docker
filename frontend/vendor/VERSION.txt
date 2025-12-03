@@ -1,0 +1,25 @@
+MMAM Frontend Vendor Dependencies
+===================================
+
+Vue.js: 3.4.21
+  Source: https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js
+  Downloaded: 2024-12-03
+  Size: 145 KB
+
+MQTT.js: 5.3.5
+  Source: https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js
+  Downloaded: 2024-12-03
+  Size: 319 KB
+
+Tailwind CSS: 3.4.1 (CDN version)
+  Source: https://cdn.tailwindcss.com/3.4.1
+  Downloaded: 2024-12-03
+  Size: 404 KB
+
+Inter Font: v20 (weights 400, 500, 600)
+  Source: Google Fonts
+  Downloaded: 2024-12-03
+  Size: 960 KB (3 files)
+
+Last updated: 2024-12-03
+Purpose: Offline operation support

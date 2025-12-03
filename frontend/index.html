@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MMAM Control Panel</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="vendor/inter-font.css">
+    <script src="vendor/tailwind-cdn.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -211,7 +210,7 @@
                             </div>
                         </div>
                         <div class="text-xs text-slate-400 text-center">
-                            Last updated: {{ automationSummary.last_updated || 'N/A' }}
+                            Last updated: {{ formatTimestamp(automationSummary && automationSummary.last_updated) }}
                         </div>
                         <div class="text-center">
                             <button
@@ -2542,8 +2541,8 @@
         </main>
         </div>
     </div>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="vendor/vue.global.prod.js"></script>
+    <script src="vendor/mqtt.min.js"></script>
     <script src="./main.js"></script>
     <style>
         .toast-fade-enter-active,

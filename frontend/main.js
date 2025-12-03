@@ -754,16 +754,20 @@ createApp({
   methods: {
     formatTimestamp(value) {
       if (!value) {
-        return new Date().toLocaleString();
+        return "N/A";
       }
       try {
-        const date = new Date(value);
+        let timestamp = value;
+        if (typeof value === "string" && !/(Z|z|[+-]\d{2}:?\d{2})$/.test(value)) {
+          timestamp = `${value}Z`;
+        }
+        const date = new Date(timestamp);
         if (Number.isNaN(date.getTime())) {
           throw new Error("Invalid date");
         }
         return date.toLocaleString();
       } catch {
-        return value;
+        return value || "N/A";
       }
     },
     canAccessChecker() {
