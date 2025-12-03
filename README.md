@@ -293,6 +293,14 @@ git commit -m "chore: update vendor dependencies"
 - `GET /api/me` – 現在のユーザー情報を取得。
 
 ### フロー管理
+
+**REST API による柔軟な更新**:
+- `PATCH /api/flows/{id}` で既存フローの任意フィールドを部分更新可能。
+- 各フロー固有の `flow_id` (UUID) をキーとして外部システムと連携。
+- 8本の別名 (`alias_1` ～ `alias_8`)、8本のユーザー定義フィールド (`user_field_1` ～ `user_field_8`) を活用し、マルチキャストアドレス (`multicast_ip`, `source_ip`, `port`) やフローID をキーとした **テキストメッセージ共有ハブ** として機能。
+- BCC、運行管理、監視システムなど複数システム間で、同一アドレス/フローIDに紐づく状態情報やメモを共有できます。
+
+**主要エンドポイント**:
 - `GET /api/flows` / `POST /api/flows` / `PATCH /api/flows/{id}` – フロー CRUD。
 - `POST /api/flows/{id}/lock` / `DELETE /api/flows/{id}/lock` – フローのロック/アンロック。
 - `DELETE /api/flows/{id}/hard` – フローの完全削除（Admin権限）。
@@ -667,6 +675,14 @@ Check `vendor/VERSION.txt` for version information.
 - `GET /api/me` – Get current user info
 
 ### Flow Management
+
+**Flexible REST API Updates**:
+- `PATCH /api/flows/{id}` supports partial updates of existing flow fields.
+- Each flow's unique `flow_id` (UUID) serves as a key for external system integration.
+- Leverage 8 aliases (`alias_1` ~ `alias_8`) and 8 user-defined fields (`user_field_1` ~ `user_field_8`) to function as a **text message sharing hub** keyed by multicast addresses (`multicast_ip`, `source_ip`, `port`) or flow IDs.
+- Share status information and notes across multiple systems (BCC, operation management, monitoring systems) linked to the same address/flow ID.
+
+**Primary Endpoints**:
 - `GET /api/flows` / `POST /api/flows` / `PATCH /api/flows/{id}` – Flow CRUD
 - `POST /api/flows/{id}/lock` / `DELETE /api/flows/{id}/lock` – Lock/unlock flow
 - `DELETE /api/flows/{id}/hard` – Hard delete flow (Admin only)
