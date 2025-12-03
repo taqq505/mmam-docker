@@ -1,0 +1,11 @@
+# Ignore all certificate files
+*.crt
+*.key
+*.pem
+*.csr
+
+# But track this .gitignore
+!.gitignore
+
+# Optional: Include README for documentation
+!README.md

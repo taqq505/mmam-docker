@@ -945,7 +945,11 @@ createApp({
         const safeHost = hostname
           ? (hostname.includes(":") ? `[${hostname}]` : hostname)
           : "localhost";
-        return `${protocol}//${safeHost}:8080`;
+
+        // Use port 8443 for HTTPS, 8080 for HTTP
+        const port = protocol === "https:" ? "8443" : "8080";
+
+        return `${protocol}//${safeHost}:${port}`;
       } catch (err) {
         console.warn("Failed to detect default base URL", err);
         return "http://localhost:8080";

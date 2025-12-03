@@ -6,27 +6,32 @@ services:
     env_file:
       - .env
     ports:
-      - "8080:8080"
+      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
     depends_on:
       - db
       - mqtt
     volumes:
       - ./src:/app/src        # Host-side source mount for dev
       - ./logs:/log           # Aggregate logs under /log inside the container
-    command: >
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8080
-      --reload
+      - ./certs:/certs        # SSL/TLS certificates
+      - ./scripts:/app/scripts:ro  # Entrypoint scripts
+    entrypoint: ["/app/scripts/entrypoint-mmam.sh"]
 
   ui:
     image: nginx:alpine
+    env_file:
+      - .env
     ports:
-      - "4173:80"
+      - "${UI_HTTP_PORT:-4173}:${UI_HTTP_PORT:-4173}"
+      - "${UI_HTTPS_PORT:-4174}:${UI_HTTPS_PORT:-4174}"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
+      - ./certs:/certs:ro     # SSL/TLS certificates (read-only)
+      - ./scripts:/scripts:ro # Entrypoint scripts (read-only)
     depends_on:
       - mmam
+    entrypoint: ["/scripts/entrypoint-ui.sh"]
 
   db:
     image: postgres:16
