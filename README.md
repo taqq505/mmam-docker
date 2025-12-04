@@ -5,7 +5,6 @@
 ![SMPTE ST 2110](https://img.shields.io/badge/SMPTE-ST%202110-blue)
 ![NMOS IS-04](https://img.shields.io/badge/NMOS-IS--04-green)
 ![NMOS IS-05](https://img.shields.io/badge/NMOS-IS--05-green)
-![RTP](https://img.shields.io/badge/Protocol-RTP-orange)
 ![Multicast](https://img.shields.io/badge/Multicast-IPv4-orange)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688)
 ![Vue.js](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D)
