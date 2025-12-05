@@ -1384,7 +1384,7 @@
                                     :disabled="!canApplyNmos(editingFlowId) || nmos.applying"
                                     @click="openNmosApplyDialog(editingFlowId)"
                                 >
-                                    NMOS Sync
+                                    NMOS Pull
                                 </button>
                                 <span v-if="canApplyNmos(editingFlowId)" class="text-[11px] text-red-600">
                                     Diff / 差分: {{ nmosDiffSummary(editingFlowId) }}
