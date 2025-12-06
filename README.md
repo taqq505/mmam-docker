@@ -11,6 +11,8 @@
 ![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791)
 ![MQTT](https://img.shields.io/badge/Messaging-MQTT-660066)
 
+🌐 **Live Site**: [https://taqq505.github.io/mmam-website](https://taqq505.github.io/mmam-website)
+
 Media Multicast Address Manager (MMAM) は、ST 2110 / NMOS フローの名前やメタデータを一元管理するフルスタックパッケージです。FastAPI + PostgreSQL で REST API を公開し、Vue 3 + Tailwind 製のシングルページ UI と Mosquitto MQTT によるリアルタイム通知を同梱しています。
 
 > English description is available in the second half of this document.
@@ -462,6 +464,8 @@ MIT License. See `LICENSE`.
 ![Vue.js](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D)
 ![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791)
 ![MQTT](https://img.shields.io/badge/Messaging-MQTT-660066)
+
+🌐 **Live Site**: [https://taqq505.github.io/mmam-website](https://taqq505.github.io/mmam-website)
 
 Media Multicast Address Manager (MMAM) is a full-stack toolkit for managing ST 2110 / NMOS flows. It ships with a FastAPI backend, PostgreSQL schema, Vue 3 + Tailwind UI, and Mosquitto for MQTT notifications.
 
